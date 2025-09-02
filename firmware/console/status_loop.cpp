@@ -47,7 +47,7 @@
 #include "can_hw.h"
 #include "periodic_thread_controller.h"
 #include "cdm_ion_sense.h"
-#include "binary_logging.h"
+#include "binary_mlg_logging.h"
 #include "buffered_writer.h"
 #include "dynoview.h"
 #include "frequency_sensor.h"
@@ -65,6 +65,7 @@
 #endif /* EFI_PROD_CODE */
 
 #if EFI_CONFIGURATION_STORAGE
+#include "storage.h"
 #include "flash_main.h"
 #endif
 
@@ -335,7 +336,7 @@ static CommunicationBlinkingTask communicationsBlinkingTask;
  * For example http://rusefi.com/forum/viewtopic.php?f=5&t=1085
  */
 static int packEngineMode() {
-	return (engineConfiguration->fuelAlgorithm << 4) +
+	return (Enum2Underlying(engineConfiguration->fuelAlgorithm) << 4) +
 			(engineConfiguration->injectionMode << 2) +
 			engineConfiguration->ignitionMode;
 }
@@ -374,7 +375,7 @@ void updateUnfilteredRawPedal();
 static void updateThrottles() {
 	SensorResult tps1 = Sensor::get(SensorType::Tps1);
 	engine->outputChannels.TPSValue = tps1.value_or(0);
-	engine->outputChannels.isTpsError = !tps1.Valid;
+	engine->outputChannels.isTpsError = Sensor::hasSensor(SensorType::Tps1) ? !tps1.Valid : false;
 	engine->outputChannels.tpsADC = convertVoltageTo10bitADC(Sensor::getRaw(SensorType::Tps1Primary));
 
 	SensorResult tps2 = Sensor::get(SensorType::Tps2);
@@ -385,7 +386,7 @@ static void updateThrottles() {
 	SensorResult pedal = Sensor::get(SensorType::AcceleratorPedal);
 	engine->outputChannels.throttlePedalPosition = pedal.value_or(0);
 	// Only report fail if you have one (many people don't)
-	engine->outputChannels.isPedalError = !pedal.Valid;
+	engine->outputChannels.isPedalError = Sensor::hasSensor(SensorType::AcceleratorPedal) ? !pedal.Valid : false;
 
 	// TPS 1 pri/sec split
 	engine->outputChannels.tps1Split = Sensor::getOrZero(SensorType::Tps1Primary) - Sensor::getOrZero(SensorType::Tps1Secondary);
@@ -395,23 +396,25 @@ static void updateThrottles() {
 	engine->outputChannels.tps12Split = Sensor::getOrZero(SensorType::Tps1) - Sensor::getOrZero(SensorType::Tps2);
 	// Pedal pri/sec split
 	engine->outputChannels.accPedalSplit = Sensor::getOrZero(SensorType::AcceleratorPedalPrimary) - Sensor::getOrZero(SensorType::AcceleratorPedalSecondary);
+
+	engine->outputChannels.accPedalUnfiltered = Sensor::getOrZero(SensorType::AcceleratorPedalUnfiltered);
 	updateUnfilteredRawPedal();
 }
 
 static void updateLambda() {
 	float lambdaValue = Sensor::getOrZero(SensorType::Lambda1);
 	engine->outputChannels.lambdaValue = lambdaValue;
-#if EFI_ENGINE_CONTROL
 	engine->outputChannels.AFRValue = lambdaValue * engine->fuelComputer.stoichiometricRatio;
+	// TODO: this can be calculated on PC side!
 	engine->outputChannels.afrGasolineScale = lambdaValue * STOICH_RATIO;
 	engine->outputChannels.SmoothedAFRValue = Sensor::getOrZero(SensorType::SmoothedLambda1);
 
 	float lambda2Value = Sensor::getOrZero(SensorType::Lambda2);
 	engine->outputChannels.lambdaValue2 = lambda2Value;
 	engine->outputChannels.AFRValue2 = lambda2Value * engine->fuelComputer.stoichiometricRatio;
+	// TODO: this can be calculated on PC side!
 	engine->outputChannels.afr2GasolineScale = lambda2Value * STOICH_RATIO;
 	engine->outputChannels.SmoothedAFRValue2 = Sensor::getOrZero(SensorType::SmoothedLambda2);
-#endif // EFI_ENGINE_CONTROL
 }
 
 static void updateFuelSensors() {
@@ -508,12 +511,12 @@ extern int flexCallbackCounter;
 	for (int i = 0; i < LUA_ANALOG_INPUT_COUNT; i++) {
 		adc_channel_e channel = engineConfiguration->auxAnalogInputs[i];
 		if (isAdcChannelValid(channel)) {
-			engine->outputChannels.rawAnalogInput[i] = adcGetScaledVoltage("raw aux", channel);
+			engine->outputChannels.rawAnalogInput[i] = adcGetScaledVoltage("raw aux", channel).value_or(0);
 		}
 	}
 
 	// TODO: transition AFR to new sensor model
-	engine->outputChannels.rawAfr = (engineConfiguration->afr.hwChannel == EFI_ADC_NONE) ? 0 : adcGetScaledVoltage("ego", engineConfiguration->afr.hwChannel);
+	engine->outputChannels.rawAfr = (engineConfiguration->afr.hwChannel == EFI_ADC_NONE) ? 0 : adcGetScaledVoltage("ego", engineConfiguration->afr.hwChannel).value_or(0);
 }
 static void updatePressures() {
 	engine->outputChannels.baroPressure = Sensor::getOrZero(SensorType::BarometricPressure);
@@ -548,6 +551,7 @@ static void updateMiscSensors() {
 
 #if	HAL_USE_ADC
 	engine->outputChannels.internalMcuTemperature = getMCUInternalTemperature();
+	engine->outputChannels.internalVref = getMCUVref();
 #endif /* HAL_USE_ADC */
 }
 
@@ -734,7 +738,7 @@ void updateTunerStudioState() {
 
 	tsOutputChannels->hasCriticalError = hasFirmwareError() || hasConfigError();
 	tsOutputChannels->hasFaultReportFile = hasErrorReportFile();
-	tsOutputChannels->triggerPageRefreshFlag = needToTriggerTsRefresh();
+	tsOutputChannels->triggerPageRefreshFlag = needToTriggerTsRefresh() || ltftNeedVeRefresh();
 
 	tsOutputChannels->isWarnNow = engine->engineState.warnings.isWarningNow();
 

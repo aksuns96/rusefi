@@ -12,35 +12,35 @@ TEST(CanWideband, AcceptFrameId0) {
 	frame.IDE = true;
 	frame.DLC = 8;
 
-	engineConfiguration->wboType1 = AEM;
+	engineConfiguration->canWbo[0].type = AEM;
 
 	// Check that the AEM format frame is accepted
 	frame.EID = 0x180;
-	EXPECT_TRUE(dut.acceptFrame(frame));
+	EXPECT_TRUE(dut.acceptFrame(0, frame));
 
 	// Check that the AEM frame with standard CAN ID is not accepted
 	frame.IDE = false;
 	frame.SID = 0x180;
-	EXPECT_FALSE(dut.acceptFrame(frame));
+	EXPECT_FALSE(dut.acceptFrame(0, frame));
 
 	// Now switch to RusEFI
-	engineConfiguration->wboType1 = RUSEFI;
+	engineConfiguration->canWbo[0].type = RUSEFI;
 
 	// Check that the rusEFI standard data is accepted
 	frame.IDE = false;
 	frame.SID = 0x190;
-	EXPECT_TRUE(dut.acceptFrame(frame));
+	EXPECT_TRUE(dut.acceptFrame(0, frame));
 
 	// Check that the rusEFI extended data is accepted
 	frame.SID = 0x191;
-	EXPECT_TRUE(dut.acceptFrame(frame));
+	EXPECT_TRUE(dut.acceptFrame(0, frame));
 
 	// Check that the rusEFI frames with extended CAN ID are not accepted
 	frame.IDE = true;
 	frame.EID = 0x190;
-	EXPECT_FALSE(dut.acceptFrame(frame));
+	EXPECT_FALSE(dut.acceptFrame(0, frame));
 	frame.EID = 0x191;
-	EXPECT_FALSE(dut.acceptFrame(frame));
+	EXPECT_FALSE(dut.acceptFrame(0, frame));
 }
 
 TEST(CanWideband, AcceptFrameId1) {
@@ -53,23 +53,25 @@ TEST(CanWideband, AcceptFrameId1) {
 	frame.IDE = true;
 	frame.DLC = 8;
 
-	engineConfiguration->wboType2 = AEM;
+	engineConfiguration->canWbo[1].type = AEM;
+	engineConfiguration->canWbo[1].aemId = WBO_AEM_ID2;
 
 	// Check that the AEM format frame is accepted
 	frame.EID = 0x181;
-	EXPECT_TRUE(dut.acceptFrame(frame));
+	EXPECT_TRUE(dut.acceptFrame(0, frame));
 
 	// Now switch to RusEFI
-	engineConfiguration->wboType2 = RUSEFI;
+	engineConfiguration->canWbo[1].type = RUSEFI;
+	engineConfiguration->canWbo[1].reId = WBO_RE_ID2;
 
 	// Check that the rusEFI standard data is accepted
 	frame.IDE = false;
 	frame.SID = 0x192;
-	EXPECT_TRUE(dut.acceptFrame(frame));
+	EXPECT_TRUE(dut.acceptFrame(0, frame));
 
 	// Check that the rusEFI extended data is accepted
 	frame.SID = 0x193;
-	EXPECT_TRUE(dut.acceptFrame(frame));
+	EXPECT_TRUE(dut.acceptFrame(0, frame));
 }
 
 class AemXSeriesWidebandWrapper: AemXSeriesWideband {
@@ -84,7 +86,7 @@ TEST(CanWideband,DecodeAemXSeriesInvalidLambda){
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
 	CANRxFrame frame;
 
-	engineConfiguration->wboType1 = AEM;
+	engineConfiguration->canWbo[0].type = AEM;
 
 	// AEM uses extended CAN ID!
 	frame.IDE = true;
@@ -109,7 +111,7 @@ TEST(CanWideband,DecodeAemXSeriesSensorFault){
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
 	CANRxFrame frame;
 
-	engineConfiguration->wboType1 = AEM;
+	engineConfiguration->canWbo[0].type = AEM;
 
 	// AEM uses extended CAN ID!
 	frame.IDE = true;
@@ -133,8 +135,10 @@ TEST(CanWideband,DecodeAemXSeriesSensorFault){
 TEST(CanWideband,DecodeAemXSeriesValidLambda){
 	AemXSeriesWidebandWrapper wbo(0, SensorType::Lambda1);
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	// we dont call initLambda on the tests init code. so we need to register this sensor on the test
+	smoothedLambda1Sensor.Register();
 
-	engineConfiguration->wboType1 = AEM;
+	engineConfiguration->canWbo[0].type = AEM;
 
 	// only this tests needs register
 	wbo.Register();
@@ -161,6 +165,7 @@ TEST(CanWideband,DecodeAemXSeriesValidLambda){
 	wbo.decodeAemXSeries(frame, getTimeNowNt());
 
 	EXPECT_FLOAT_EQ(1.2032f, Sensor::get(SensorType::Lambda1).value_or(-1));
+	EXPECT_FLOAT_EQ(1.2032f, Sensor::get(SensorType::SmoothedLambda1).value_or(-1));
 	Sensor::resetRegistry();
 }
 
@@ -169,7 +174,7 @@ TEST(CanWideband, DecodeValidAemFormat) {
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
 	dut.Register();
 
-	engineConfiguration->wboType1 = AEM;
+	engineConfiguration->canWbo[0].type = AEM;
 
 	// check not set
 	EXPECT_FLOAT_EQ(-1, Sensor::get(SensorType::Lambda1).value_or(-1));
@@ -194,7 +199,7 @@ TEST(CanWideband, DecodeValidAemFormat) {
 	frame.data8[7] = 0;
 
 	// check that lambda updates
-	dut.processFrame(frame, getTimeNowNt());
+	dut.processFrame(0, frame, getTimeNowNt());
 	EXPECT_FLOAT_EQ(0.8f, Sensor::get(SensorType::Lambda1).value_or(-1));
 
 
@@ -203,7 +208,7 @@ TEST(CanWideband, DecodeValidAemFormat) {
 		1 << 1 |	// LSU 4.9 detected
 		0 << 7;		// Data INVALID
 
-	dut.processFrame(frame, getTimeNowNt());
+	dut.processFrame(0, frame, getTimeNowNt());
 	EXPECT_FLOAT_EQ(-1, Sensor::get(SensorType::Lambda1).value_or(-1));
 
 
@@ -213,7 +218,7 @@ TEST(CanWideband, DecodeValidAemFormat) {
 		1 << 7;		// Data valid
 	frame.data8[7] = 1 << 6; // Sensor fault!
 
-	dut.processFrame(frame, getTimeNowNt());
+	dut.processFrame(0, frame, getTimeNowNt());
 	EXPECT_FLOAT_EQ(-1, Sensor::get(SensorType::Lambda1).value_or(-1));
 
 	Sensor::resetRegistry();
@@ -225,8 +230,10 @@ TEST(CanWideband, DecodeRusefiStandard)
 {
 	AemXSeriesWideband dut(0, SensorType::Lambda1);
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
+	// we dont call initLambda on the tests init code. so we need to register this sensor on the test
+	smoothedLambda1Sensor.Register();
 
-	engineConfiguration->wboType1 = RUSEFI;
+	engineConfiguration->canWbo[0].type = RUSEFI;
 
 	dut.Register();
 
@@ -271,17 +278,18 @@ TEST(CanWideband, DecodeRusefiStandard)
 	EXPECT_FLOAT_EQ(-1, Sensor::get(SensorType::Lambda1).value_or(-1));
 
 	// check that lambda updates
-	dut.processFrame(frame, getTimeNowNt());
-	dut.processFrame(diagFrame, getTimeNowNt());
+	dut.processFrame(0, frame, getTimeNowNt());
+	dut.processFrame(0, diagFrame, getTimeNowNt());
 	EXPECT_FLOAT_EQ(0.7f, Sensor::get(SensorType::Lambda1).value_or(-1));
+	EXPECT_FLOAT_EQ(0.7f, Sensor::get(SensorType::SmoothedLambda1).value_or(-1));
 
 	// Check that temperature updates
 	EXPECT_EQ(dut.tempC, 1234);
 
 	// Check that valid bit is respected (should be invalid now)
 	frame.data8[1] = 0;
-	dut.processFrame(frame, getTimeNowNt());
-	dut.processFrame(diagFrame, getTimeNowNt());
+	dut.processFrame(0, frame, getTimeNowNt());
+	dut.processFrame(0, diagFrame, getTimeNowNt());
 	EXPECT_FLOAT_EQ(-1, Sensor::get(SensorType::Lambda1).value_or(-1));
 
 	// ...but no error until egine is runnig
@@ -289,15 +297,15 @@ TEST(CanWideband, DecodeRusefiStandard)
 
 	// Now driver should handle valid bit and error states from wbo
 	engine->engineState.heaterControlEnabled = true;
-	dut.processFrame(frame, getTimeNowNt());
-	dut.processFrame(diagFrame, getTimeNowNt());
+	dut.processFrame(0, frame, getTimeNowNt());
+	dut.processFrame(0, diagFrame, getTimeNowNt());
 	EXPECT_FLOAT_EQ(-1, Sensor::get(SensorType::Lambda1).value_or(-1));
 
 	// make valid again, but report WBO error in diagnostic frame
 	frame.data8[1] = 1;
 	diagFrame.data8[5] = (uint8_t)wbo::Fault::SensorNoHeatSupply;
-	dut.processFrame(frame, getTimeNowNt());
-	dut.processFrame(diagFrame, getTimeNowNt());
+	dut.processFrame(0, frame, getTimeNowNt());
+	dut.processFrame(0, diagFrame, getTimeNowNt());
 	EXPECT_EQ((uint8_t)wbo::Fault::SensorNoHeatSupply, dut.faultCode);
 	EXPECT_FLOAT_EQ(0.7f, Sensor::get(SensorType::Lambda1).value_or(-1));
 }
@@ -307,7 +315,7 @@ TEST(CanWideband, DecodeRusefiStandardWrongVersion)
 	AemXSeriesWideband dut(0, SensorType::Lambda1);
 	EngineTestHelper eth(engine_type_e::TEST_ENGINE);
 
-	engineConfiguration->wboType1 = RUSEFI;
+	engineConfiguration->canWbo[0].type = RUSEFI;
 
 	dut.Register();
 
@@ -319,5 +327,5 @@ TEST(CanWideband, DecodeRusefiStandardWrongVersion)
 	// version - WRONG VERSION ON PURPOSE!
 	frame.data8[0] = RUSEFI_WIDEBAND_VERSION_MIN - 1;
 
-	EXPECT_FATAL_ERROR(dut.processFrame(frame, getTimeNowNt()));
+	EXPECT_FATAL_ERROR(dut.processFrame(0, frame, getTimeNowNt()));
 }

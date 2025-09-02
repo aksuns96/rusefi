@@ -37,6 +37,7 @@ public class ProgramSelector {
     private final JPanel updateModeAndButton = new JPanel(new FlowLayout());
     private final JComboBox<UpdateMode> updateModeComboBox = new JComboBox<>();
     private final ConnectivityContext connectivityContext;
+    private final static boolean USE_JAVA_SERIAL = Boolean.getBoolean("USE_JAVA_OPENBLT_SERIAL");
 
     public ProgramSelector(ConnectivityContext connectivityContext, JComboBox<PortResult> comboPorts) {
         this.connectivityContext = connectivityContext;
@@ -214,7 +215,6 @@ public class ProgramSelector {
         UpdateOperationCallbacks callbacks, ConnectivityContext connectivityContext
     ) {
         return updateFirmwareAndRestorePreviousCalibrations(
-            parent,
             ecuPort.port,
             callbacks,
             () -> bltUpdateFirmware(parent, ecuPort, callbacks, connectivityContext), connectivityContext
@@ -258,7 +258,7 @@ public class ProgramSelector {
 
         callbacks.logLine("Serial port " + openbltPort + " appeared, programming firmware...");
 
-        return flashOpenbltSerialJni(parent, openbltPort, callbacks);
+        return flashOpenbltSerial(parent, openbltPort, callbacks);
     }
 
     private static OpenbltJni.OpenbltCallbacks makeOpenbltCallbacks(UpdateOperationCallbacks callbacks) {
@@ -290,7 +290,7 @@ public class ProgramSelector {
             "Error", JOptionPane.ERROR_MESSAGE);
     }
 
-    public static boolean flashOpenbltSerialJni(JComponent parent, String port, UpdateOperationCallbacks callbacks) {
+    public static boolean flashOpenbltSerial(JComponent parent, String port, UpdateOperationCallbacks callbacks) {
         if (FileLog.is32bitJava()) {
             showError32bitJava(parent);
             return false;
@@ -305,7 +305,12 @@ public class ProgramSelector {
         }
         try {
             callbacks.logLine("flashSerial " + fileName);
-            OpenbltJni.flashSerial(fileName, port, cb);
+            if (USE_JAVA_SERIAL) {
+                OpenBltFlasher.flashSerial(fileName, port, cb);
+                callbacks.logLine("java flasher was used");
+            } else {
+                OpenbltJni.flashSerial(fileName, port, cb);
+            }
 
             callbacks.logLine("Update completed successfully!");
             return true;
@@ -313,7 +318,9 @@ public class ProgramSelector {
             callbacks.logLine("Error: " + e);
             return false;
         } finally {
-            OpenbltJni.stop(cb);
+            if (!USE_JAVA_SERIAL) {
+                OpenbltJni.stop(cb);
+            }
         }
     }
 
@@ -373,12 +380,16 @@ public class ProgramSelector {
             updateModeComboBox.setSelectedItem(updateModeToRestore);
         }
 
-        AutoupdateUtil.trueLayout(updateModeComboBox);
-        AutoupdateUtil.trueLayout(content);
+        AutoupdateUtil.trueLayoutAndRepaint(updateModeComboBox);
+        AutoupdateUtil.trueLayoutAndRepaint(content);
     }
 
   @NotNull
   public static JButton createUpdateFirmwareButton() {
     return new JButton("Update Firmware", AutoupdateUtil.loadIcon("upload48.png"));
   }
+
+    public void setMode(UpdateMode updateMode) {
+        updateModeComboBox.setSelectedItem(updateMode);
+    }
 }

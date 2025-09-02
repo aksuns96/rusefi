@@ -59,6 +59,10 @@ public class BinaryProtocol {
 
     private final BinaryProtocolState state = new BinaryProtocolState();
 
+    static {
+        log.info("BINARY_IO_TIMEOUT=" + Timeouts.BINARY_IO_TIMEOUT);
+        log.info("CONNECTION_RESTART_DELAY=" + Timeouts.CONNECTION_RESTART_DELAY);
+    }
 
     private final BinaryProtocolLogger binaryProtocolLogger;
     public static IniFileProvider iniFileProvider = new RealIniFileProvider();
@@ -260,7 +264,7 @@ public class BinaryProtocol {
             byte[] newBytes = newVersion.getRange(range.first, size);
             log.info("new " + Arrays.toString(newBytes));
 
-            writeData(newVersion.getContent(), range.first, range.first, size);
+            writeInBlocks(newVersion.getContent(), range.first, range.first, size);
 
             offset = range.second;
         }
@@ -505,7 +509,24 @@ public class BinaryProtocol {
         stream.close();
     }
 
-    public void writeData(byte[] content, int contentOffset, int ecuOffset, int size) {
+    public void writeInBlocks(byte[] content, int contentOffset, int ecuOffset, int size) {
+        int idx = 0;
+        int remaining;
+        int blockingFactor = getIniFile().getBlockingFactor();
+
+        do {
+            remaining = size - idx;
+            int thisWrite = Math.min(remaining, blockingFactor);
+
+            writeData(content, contentOffset + idx, ecuOffset + idx, thisWrite);
+
+            idx += thisWrite;
+
+            remaining -= thisWrite;
+        } while (remaining > 0);
+    }
+
+    private void writeData(byte[] content, int contentOffset, int ecuOffset, int size) {
         isBurnPending = true;
 
         byte[] packet = WriteCommand.getWritePacket(content, contentOffset, ecuOffset, size);

@@ -90,10 +90,9 @@
 #include "rusEfiFunctionalTest.h"
 #endif /* EFI_SIMULATOR */
 
-#if EFI_TUNER_STUDIO
+#include "board_overrides.h"
 
-// Each offset is uint16_t
-static_assert(TS_SCATTER_PAGE_SIZE == TS_SCATTER_OFFSETS_COUNT * 2);
+#if EFI_TUNER_STUDIO
 
 // We have TS protocol limitation: offset within one settings page is uin16_t type.
 static_assert(sizeof(*config) <= 65536);
@@ -111,7 +110,7 @@ static void printErrorCounters() {
 }
 
 namespace {
-	Timer calibrationsWriteTimer;
+	Timer calibrationsVeWriteTimer;
 }
 
 #if 0
@@ -176,9 +175,15 @@ static uint8_t* getWorkingPageAddr(TsChannelBase* tsChannel, size_t page, size_t
 		return (uint8_t*)engineConfiguration + offset;
 #if EFI_TS_SCATTER
 	case TS_PAGE_SCATTER_OFFSETS:
-		return (uint8_t *)tsChannel->highSpeedOffsets + offset;
+		return (uint8_t *)tsChannel->page1.highSpeedOffsets + offset;
+#endif
+#if EFI_LTFT_CONTROL
+	case TS_PAGE_LTFT_TRIMS:
+		return (uint8_t *)ltftGetTsPage() + offset;
 #endif
 	default:
+// technical dept: TS seems to try to read the 3 pages sequentially, does not look like we properly handle 'EFI_TS_SCATTER=FALSE'
+		tunerStudioError(tsChannel, "ERROR: page address out of range");
 		return nullptr;
 	}
 }
@@ -189,7 +194,11 @@ static constexpr size_t getTunerStudioPageSize(size_t page) {
 		return TOTAL_CONFIG_SIZE;
 #if EFI_TS_SCATTER
 	case TS_PAGE_SCATTER_OFFSETS:
-		return TS_SCATTER_PAGE_SIZE;
+		return PAGE_SIZE_1;
+#endif
+#if EFI_LTFT_CONTROL
+	case TS_PAGE_LTFT_TRIMS:
+		return ltftGetTsPageSize();
 #endif
 	default:
 		return 0;
@@ -260,7 +269,27 @@ void onApplyPreset() {
 	engine->engineTypeChangeTimer.reset();
 }
 
+PUBLIC_API_WEAK bool isTouchingVe(uint16_t offset, uint16_t count) {
+  return isTouchingArea(offset, count, offsetof(persistent_config_s, veTable), sizeof(config->veTable));
+}
+
 static void onCalibrationWrite(uint16_t page, uint16_t offset, uint16_t count) {
+		if (isTouchingVe(offset, count)) {
+		  calibrationsVeWriteTimer.reset();
+    }
+}
+
+bool isTouchingArea(uint16_t offset, uint16_t count, int areaStart, int areaSize) {
+  if (offset + count < areaStart) {
+    // we are touching below for instance VE table
+    return false;
+  }
+  if (offset > areaStart + areaSize) {
+    // we are touching after for instance VE table
+    return false;
+  }
+  // else - we are touching it!
+  return true;
 }
 
 /**
@@ -308,10 +337,7 @@ void TunerStudio::handleWriteChunkCommand(TsChannelBase* tsChannel, uint16_t pag
 		}
 		// Force any board configuration options that humans shouldn't be able to change
 		// huh, why is this NOT within above 'needToTriggerTsRefresh()' condition?
-		setBoardConfigOverrides();
-
-		// we don't care about writes to scatter page
-		calibrationsWriteTimer.reset();
+		call_board_override(custom_board_ConfigOverrides);
 	} else {
 		memcpy(addr, content, count);
 	}
@@ -346,7 +372,7 @@ void TunerStudio::handleScatteredReadCommand(TsChannelBase* tsChannel) {
 
 	int totalResponseSize = 0;
 	for (size_t i = 0; i < TS_SCATTER_OFFSETS_COUNT; i++) {
-		uint16_t packed = tsChannel->highSpeedOffsets[i];
+		uint16_t packed = tsChannel->page1.highSpeedOffsets[i];
 		uint16_t type = packed >> 13;
 
 		size_t size = type == 0 ? 0 : 1 << (type - 1);
@@ -364,7 +390,7 @@ void TunerStudio::handleScatteredReadCommand(TsChannelBase* tsChannel) {
 
 	uint8_t dataBuffer[8];
 	for (size_t i = 0; i < TS_SCATTER_OFFSETS_COUNT; i++) {
-		uint16_t packed = tsChannel->highSpeedOffsets[i];
+		uint16_t packed = tsChannel->page1.highSpeedOffsets[i];
 		uint16_t type = packed >> 13;
 		uint16_t offset = packed & 0x1FFF;
 
@@ -1001,9 +1027,9 @@ static char tsErrorBuff[80];
 
 #endif // EFI_PROD_CODE || EFI_SIMULATOR
 
-bool isTuningNow() {
+bool isTuningVeNow() {
 	return (!TunerDetectorUtils::isTuningDetectorUndefined()) &&
-		!calibrationsWriteTimer.hasElapsedSec(TunerDetectorUtils::getUserEnteredTuningDetector());
+		!calibrationsVeWriteTimer.hasElapsedSec(TunerDetectorUtils::getUserEnteredTuningDetector());
 }
 
 void startTunerStudioConnectivity() {

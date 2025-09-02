@@ -9,6 +9,7 @@
 #include "tcu_controller_generated.h"
 #include "fuel_computer.h"
 #include "antilag_system_state_generated.h"
+#include "closed_loop_idle_generated.h"
 #include "vvt_generated.h"
 #include "mc33810_state_generated.h"
 #include <livedata_board_extra.h>
@@ -231,6 +232,15 @@ const sent_state_s* getLiveData(size_t) {
 }
 
 template<>
+const closed_loop_idle_s* getLiveData(size_t) {
+#if EFI_IDLE_CONTROL
+	return &engine->m_ltit;
+#else
+	return nullptr;
+#endif
+}
+
+template<>
 const throttle_model_s* getLiveData(size_t) {
 #if EFI_IDLE_CONTROL
 	return &engine->module<ThrottleModel>().unmock();
@@ -268,4 +278,41 @@ static const FragmentEntry fragments[] = {
 
 FragmentList getLiveDataFragments() {
 	return { fragments, efi::size(fragments) };
+}
+
+template<>
+const long_term_fuel_trim_state_s* getLiveData(size_t) {
+#if EFI_LTFT_CONTROL
+	engine->module<LongTermFuelTrim>()->onLiveDataRead();
+	return &engine->module<LongTermFuelTrim>().unmock();
+#else
+	return nullptr;
+#endif
+}
+
+template<>
+const short_term_fuel_trim_state_s* getLiveData(size_t) {
+#if EFI_LTFT_CONTROL
+	return &engine->module<ShortTermFuelTrim>().unmock();
+#else
+	return nullptr;
+#endif
+}
+
+template<>
+const live_data_example_s* getLiveData(size_t) {
+#if EFI_LTFT_CONTROL
+	return &engine->module<ExampleModule>().unmock();
+#else
+	return nullptr;
+#endif
+}
+
+template<>
+const vvl_controller_state_s* getLiveData(size_t) {
+#if MODULE_VVL_CONTROLLER
+	return &engine->module<VvlController>().unmock();
+#else
+	return nullptr;
+#endif
 }

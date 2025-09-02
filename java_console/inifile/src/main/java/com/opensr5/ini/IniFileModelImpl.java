@@ -49,7 +49,6 @@ public class IniFileModelImpl implements IniFileModel {
 
     private boolean isInSettingContextHelp = false;
     private boolean isInsidePageDefinition;
-    private String signature;
     private int blockingFactor;
     // useful when connecting remotely via TCP/IP, if CUSTOM_TS_BUFFER_SIZE is available
     private static final Integer blockingFactorOverride = Integer.getInteger("blockingFactorOverride");
@@ -61,7 +60,11 @@ public class IniFileModelImpl implements IniFileModel {
 
     public static IniFileModelImpl findAndReadIniFile(String iniFilePath) {
         final String fileName = findMetaInfoFile(iniFilePath);
-        return IniFileModelImpl.readIniFile(fileName);
+        try {
+            return IniFileModelImpl.readIniFile(fileName);
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private IniFileModelImpl(@Nullable final IniFileMetaInfoImpl metaInfo, final String iniFilePath) {
@@ -71,7 +74,7 @@ public class IniFileModelImpl implements IniFileModel {
 
     @Override
     public String getSignature() {
-        return signature;
+        return metaInfo.getSignature();
     }
 
     @Override
@@ -143,7 +146,8 @@ public class IniFileModelImpl implements IniFileModel {
         return fieldsInUiOrder;
     }
 
-    public static IniFileModelImpl readIniFile(String fileName) {
+    @NotNull
+    public static IniFileModelImpl readIniFile(String fileName) throws FileNotFoundException {
         Objects.requireNonNull(fileName, "fileName");
         log.info("Reading " + fileName);
         File input = new File(fileName);
@@ -234,10 +238,8 @@ public class IniFileModelImpl implements IniFileModel {
 
             String first = list.getFirst();
 
-            if (first.equalsIgnoreCase("signature")) {
-                signature = list.get(1);
-            } else if (first.equalsIgnoreCase("blockingFactor")) {
-                blockingFactor = Integer.valueOf(list.get(1));
+            if (first.equalsIgnoreCase("blockingFactor")) {
+                blockingFactor = Integer.parseInt(list.get(1));
             }
 
 

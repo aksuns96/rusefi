@@ -23,7 +23,7 @@ enum class engine_type_e : uint16_t {
 	 */
 	MRE_SECONDARY_CAN = 4,
 
-	NISSAN_PRIMERA = 5,
+	UNUSED_5 = 5,
 	HARLEY = 6,
 	FORD_INLINE_6_1995 = 7,
 	/**
@@ -42,7 +42,7 @@ enum class engine_type_e : uint16_t {
 	FORD_ESCORT_GT = 14,
 	// this is pretty close to body control module/BCM use-case!
 	FUEL_BENCH = 15,
-	MITSUBISHI_4G93 = 16,
+	UNUSED_16 = 16,
 	TCU_4R70W = 17,
 
 	TEST_33816 = 18,
@@ -69,7 +69,7 @@ enum class engine_type_e : uint16_t {
 
 	TEST_ENGINE = 26,
 
-	PROTEUS_GM_LS_4 = 27,
+	GM_SBC_GEN4 = 27,
 
 	TEST_CRANK_ENGINE = 28,
 

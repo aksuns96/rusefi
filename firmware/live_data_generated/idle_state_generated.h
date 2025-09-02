@@ -50,87 +50,87 @@ struct idle_state_s {
 	offset 12 bit 5 */
 	bool isIacTableForCoasting : 1 {};
 	/**
-	offset 12 bit 6 */
-	bool notIdling : 1 {};
-	/**
 	 * Idle: reset
-	offset 12 bit 7 */
+	offset 12 bit 6 */
 	bool needReset : 1 {};
 	/**
 	 * Idle: dead zone
-	offset 12 bit 8 */
+	offset 12 bit 7 */
 	bool isInDeadZone : 1 {};
 	/**
-	offset 12 bit 9 */
+	offset 12 bit 8 */
 	bool isBlipping : 1 {};
 	/**
-	offset 12 bit 10 */
-	bool useClosedLoop : 1 {};
-	/**
-	offset 12 bit 11 */
+	offset 12 bit 9 */
 	bool badTps : 1 {};
 	/**
-	offset 12 bit 12 */
+	offset 12 bit 10 */
 	bool looksLikeRunning : 1 {};
 	/**
-	offset 12 bit 13 */
+	offset 12 bit 11 */
 	bool looksLikeCoasting : 1 {};
 	/**
-	offset 12 bit 14 */
+	offset 12 bit 12 */
 	bool looksLikeCrankToIdle : 1 {};
 	/**
 	 * Idle: coasting
-	offset 12 bit 15 */
+	offset 12 bit 13 */
 	bool isIdleCoasting : 1 {};
 	/**
 	 * Idle: Closed loop active
-	offset 12 bit 16 */
+	offset 12 bit 14 */
 	bool isIdleClosedLoop : 1 {};
 	/**
+	offset 12 bit 15 */
+	bool unusedBit_18_15 : 1 {};
+	/**
+	offset 12 bit 16 */
+	bool unusedBit_18_16 : 1 {};
+	/**
 	offset 12 bit 17 */
-	bool unusedBit_20_17 : 1 {};
+	bool unusedBit_18_17 : 1 {};
 	/**
 	offset 12 bit 18 */
-	bool unusedBit_20_18 : 1 {};
+	bool unusedBit_18_18 : 1 {};
 	/**
 	offset 12 bit 19 */
-	bool unusedBit_20_19 : 1 {};
+	bool unusedBit_18_19 : 1 {};
 	/**
 	offset 12 bit 20 */
-	bool unusedBit_20_20 : 1 {};
+	bool unusedBit_18_20 : 1 {};
 	/**
 	offset 12 bit 21 */
-	bool unusedBit_20_21 : 1 {};
+	bool unusedBit_18_21 : 1 {};
 	/**
 	offset 12 bit 22 */
-	bool unusedBit_20_22 : 1 {};
+	bool unusedBit_18_22 : 1 {};
 	/**
 	offset 12 bit 23 */
-	bool unusedBit_20_23 : 1 {};
+	bool unusedBit_18_23 : 1 {};
 	/**
 	offset 12 bit 24 */
-	bool unusedBit_20_24 : 1 {};
+	bool unusedBit_18_24 : 1 {};
 	/**
 	offset 12 bit 25 */
-	bool unusedBit_20_25 : 1 {};
+	bool unusedBit_18_25 : 1 {};
 	/**
 	offset 12 bit 26 */
-	bool unusedBit_20_26 : 1 {};
+	bool unusedBit_18_26 : 1 {};
 	/**
 	offset 12 bit 27 */
-	bool unusedBit_20_27 : 1 {};
+	bool unusedBit_18_27 : 1 {};
 	/**
 	offset 12 bit 28 */
-	bool unusedBit_20_28 : 1 {};
+	bool unusedBit_18_28 : 1 {};
 	/**
 	offset 12 bit 29 */
-	bool unusedBit_20_29 : 1 {};
+	bool unusedBit_18_29 : 1 {};
 	/**
 	offset 12 bit 30 */
-	bool unusedBit_20_30 : 1 {};
+	bool unusedBit_18_30 : 1 {};
 	/**
 	offset 12 bit 31 */
-	bool unusedBit_20_31 : 1 {};
+	bool unusedBit_18_31 : 1 {};
 	/**
 	 * Idle: Target RPM
 	 * offset 16
@@ -157,30 +157,34 @@ struct idle_state_s {
 	 */
 	percent_t luaAdd = (percent_t)0;
 	/**
-	 * Closed loop
 	 * offset 36
+	 */
+	int m_lastTargetRpm = (int)0;
+	/**
+	 * Closed loop
+	 * offset 40
 	 */
 	percent_t idleClosedLoop = (percent_t)0;
 	/**
 	 * @@GAUGE_NAME_IAC@@
 	 * units: %
-	 * offset 40
+	 * offset 44
 	 */
 	percent_t currentIdlePosition = (percent_t)0;
 	/**
 	 * Target airmass
 	 * units: mg
-	 * offset 44
+	 * offset 48
 	 */
 	uint16_t idleTargetAirmass = (uint16_t)0;
 	/**
 	 * Target airflow
 	 * units: kg/h
-	 * offset 46
+	 * offset 50
 	 */
 	scaled_channel<uint16_t, 100, 1> idleTargetFlow = (uint16_t)0;
 };
-static_assert(sizeof(idle_state_s) == 48);
+static_assert(sizeof(idle_state_s) == 52);
 
 // end
 // this section was generated automatically by rusEFI tool config_definition_base-all.jar based on (unknown script) controllers/actuators/idle_state.txt

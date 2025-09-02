@@ -140,6 +140,9 @@ void defaultsOrFixOnBurn() {
 	  engineConfiguration->mapExpAverageAlpha = 1;
 	}
 
+	if (engineConfiguration->ppsExpAverageAlpha <= 0 || engineConfiguration->ppsExpAverageAlpha > 1) {
+	  engineConfiguration->ppsExpAverageAlpha = 1;
+	}
 	if (engineConfiguration->afrExpAverageAlpha <= 0 || engineConfiguration->afrExpAverageAlpha > 1) {
 	  engineConfiguration->afrExpAverageAlpha = 1;
 	}
@@ -163,7 +166,12 @@ void setDefaultBaseEngine() {
 	// Base Engine Settings
 	engineConfiguration->displacement = 2;
 	engineConfiguration->knockDetectionUseDoubleFrequency = true;
+#if MAX_CYLINDER_COUNT >= 4
 	setInline4();
+#else
+  // todo: invoke more complete one cylinder default?
+  engineConfiguration->cylindersCount = 1;
+#endif
 
   for (size_t i = 0; i < engineConfiguration->cylindersCount; i++) {
     // one knock sensor by default. See also 'setLeftRightBanksNeedBetterName()'
@@ -175,6 +183,8 @@ void setDefaultBaseEngine() {
 	engineConfiguration->vssFilterReciprocal = VSS_FILTER_MIN;
 	engineConfiguration->boardUseCanTerminator = true;
 	engineConfiguration->acLowRpmLimit = 500;
+
+	engineConfiguration->mafFilterParameter = 1;
 
 #ifdef EFI_KLINE
   engineConfiguration->kLinePeriodUs = 300 /* us*/;
@@ -220,15 +230,10 @@ void setDefaultBaseEngine() {
  	setRpmTableBin(config->torqueRpmBins);
  	setLinearCurve(config->torqueLoadBins, 0, 100, 1);
 
-	engineConfiguration->fuelAlgorithm = LM_SPEED_DENSITY;
+	engineConfiguration->fuelAlgorithm = engine_load_mode_e::LM_SPEED_DENSITY;
 	// let's have valid default while we still have the field
 	engineConfiguration->debugMode = DBG_EXECUTOR;
 
-	engineConfiguration->boostCutPressure = 300;
-	engineConfiguration->boostCutPressureHyst = 20;
-  engineConfiguration->boostControlMinRpm = 2000;
-  engineConfiguration->boostControlMinTps = 30;
-  engineConfiguration->boostControlMinMap = 110;
 
 	engineConfiguration->primingDelay = 0.5;
 	// this should not be below default rpm! maybe even make them equal?
@@ -381,11 +386,6 @@ void setDefaultBaseEngine() {
 	engineConfiguration->benchTestOffTime = 500;
 	engineConfiguration->benchTestCount = 3;
 
-	// Fans
-	engineConfiguration->fanOnTemperature = 92;
-	engineConfiguration->fanOffTemperature = 88;
-	engineConfiguration->fan2OnTemperature = 95;
-	engineConfiguration->fan2OffTemperature = 91;
 
 	// Tachometer
 	// 50% duty cycle is the default for tach signal
@@ -421,6 +421,7 @@ void setDefaultBaseEngine() {
 	setRpmTableBin(config->minimumOilPressureBins);
 	setRpmTableBin(config->maximumOilPressureBins);
 
+	engine->engineModules.apply_all([](auto & m) { m.setDefaultConfiguration(); });
   // we invoke this last so that we can validate even defaults
   defaultsOrFixOnBurn();
 }

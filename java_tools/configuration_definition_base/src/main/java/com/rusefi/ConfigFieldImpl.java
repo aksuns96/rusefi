@@ -30,7 +30,7 @@ public class ConfigFieldImpl implements ConfigField {
 
     private static final String typePattern = "([\\w\\d_]+)(\\[([\\w\\d]+)(\\sx\\s([\\w\\d]+))?(\\s([\\w\\d]+))?\\])?";
 
-    private static final String namePattern = "[[\\w\\d\\s_]]+";
+    private static final String namePattern = "[[@\\w\\d\\s_]]+";
     private static final String commentPattern = ";([^;]*)";
 
     private static final Pattern FIELD = Pattern.compile(typePattern + "\\s(" + namePattern + ")(" + commentPattern + ")?(;(.*))?");
@@ -57,6 +57,11 @@ public class ConfigFieldImpl implements ConfigField {
     private boolean isFromIterate;
     private String iterateOriginalName;
     private int iterateIndex;
+
+    // this is used to override the units used on rusefi_config.txt
+    // only used to replace "SPECIAL_CASE_TEMPERATURE" to "C" and "F", and apply the correct scale
+    @Nullable
+    private String mockedTsInfo;
 
     /**
      * todo: one day someone should convert this into a builder
@@ -127,6 +132,7 @@ public class ConfigFieldImpl implements ConfigField {
             throw new FieldOutOfRangeException(name + ": max value " + max + " outside of range. Type " + type + " maxValue " + maxValue);
     }
 
+
     @Override
     public ConfigStructure getParentStructureType() {
         return parentType;
@@ -191,7 +197,7 @@ public class ConfigFieldImpl implements ConfigField {
         if (!matcher.matches())
             return null;
 
-        String nameString = matcher.group(8).trim();
+        String nameString = state.getVariableRegistry().applyVariables(matcher.group(8).trim());
         String[] nameTokens = nameString.split("\\s");
         String name = nameTokens[nameTokens.length - 1];
 
@@ -337,7 +343,15 @@ public class ConfigFieldImpl implements ConfigField {
 
     @Override
     public String getTsInfo() {
+        if (mockedTsInfo != null) {
+            return mockedTsInfo;
+        }
         return tsInfo;
+    }
+
+    @Override
+    public void setTsInfo(String newTsInfo) {
+    	mockedTsInfo = newTsInfo;
     }
 
     @Override

@@ -9,7 +9,7 @@ import com.rusefi.io.UpdateOperationCallbacks;
 import com.rusefi.maintenance.migration.DefaultIniFieldMigrator;
 import com.rusefi.maintenance.migration.TuneMigrationContext;
 import com.rusefi.maintenance.migration.TuneMigrator;
-import com.rusefi.output.ConfigStructure;
+import com.rusefi.output.UnusedPrefix;
 import com.rusefi.tune.xml.Constant;
 
 import java.util.*;
@@ -39,15 +39,15 @@ public enum DefaultTuneMigrator implements TuneMigrator {
         for (final Map.Entry<String, IniField> prevFieldEntry: prevIniFields.entrySet()) {
             final String prevFieldName = prevFieldEntry.getKey();
             if (!INI_FIELDS_TO_IGNORE.contains(prevFieldName) && !boardSpecificIniFieldsToIgnore.contains(prevFieldName)
-                && !isUnusedField(prevFieldName)
+                && !context.isAdditionalIniFieldToIgnore(prevFieldName) && !isUnusedField(prevFieldName)
             ) {
                 // We do not want to migrate already migrated ini-fields:
                 if (!context.isFieldAlreadyMigrated(prevFieldName) && !context.getMigratedConstants().containsKey(
                     prevFieldEntry
                 )) {
                     final IniField newField = newIniFields.get(prevFieldName);
+                    final Constant prevValue = prevValues.get(prevFieldName);
                     if (newField != null) {
-                        final Constant prevValue = prevValues.get(prevFieldName);
                         final Constant newValue = newValues.get(prevFieldName);
                         if (prevValue != null) {
                             if (newValue == null) { // new value is empty
@@ -132,9 +132,12 @@ public enum DefaultTuneMigrator implements TuneMigrator {
                                     }
                                 }
                             }
-                        } else {
-                            log.info(String.format("Field `%s` is missed in new .ini file", prevFieldName));
                         }
+                    } else if (prevValue != null) {
+                        callbacks.logLine(String.format(
+                            "We aren't going to restore field `%s`: it is missed in new .ini file",
+                            prevFieldName
+                        ));
                     }
                 }
             }
@@ -142,6 +145,6 @@ public enum DefaultTuneMigrator implements TuneMigrator {
     }
 
     private static boolean isUnusedField(final String fieldName) {
-        return fieldName.startsWith(ConfigStructure.UNUSED_ANYTHING_PREFIX);
+        return fieldName.startsWith(UnusedPrefix.UNUSED_ANYTHING_PREFIX);
     }
 }

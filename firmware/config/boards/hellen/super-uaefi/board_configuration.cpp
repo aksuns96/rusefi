@@ -8,6 +8,7 @@
 #include "defaults.h"
 #include "hellen_meta.h"
 #include "hellen_leds_100.cpp"
+#include "board_overrides.h"
 //#include "connectors/generated_board_pin_names.h"
 
 static void setInjectorPins() {
@@ -45,7 +46,7 @@ static void setupDefaultSensorInputs() {
   engineConfiguration->vehicleSpeedSensorInputPin = Gpio::MM100_IN_D3;
 }
 
-void setBoardConfigOverrides() {
+static void super_uaefi_boardConfigOverrides() {
 	setHellenMegaEnPin();
 	setHellenVbatt();
 
@@ -60,13 +61,6 @@ void setBoardConfigOverrides() {
 }
 
 bool validateBoardConfig() {
-#ifndef HW_HELLEN_UAEFI121
-  // this same file is used for both uaefi and uaefi121
-  if (engineConfiguration->can2RxPin != Gpio::B12) {
-	  engineConfiguration->can2RxPin = Gpio::B12;
-	  engineConfiguration->can2TxPin = Gpio::B13;
-  }
-#endif
   return true;
 }
 
@@ -82,7 +76,7 @@ static void setDefaultETBPins() {
  * See also setDefaultEngineConfiguration
  *
  */
-void setBoardDefaultConfiguration() {
+static void super_uaefi_boardDefaultConfiguration() {
 	setInjectorPins();
 	setIgnitionPins();
 	setDefaultETBPins();
@@ -92,17 +86,10 @@ void setBoardDefaultConfiguration() {
 	engineConfiguration->displayLogicLevelsInEngineSniffer = true;
 	engineConfiguration->isSdCardEnabled = true;
 
-	engineConfiguration->globalTriggerAngleOffset = 0;
-
 	engineConfiguration->enableSoftwareKnock = true;
 
 	engineConfiguration->canTxPin = Gpio::MM100_CAN_TX;
 	engineConfiguration->canRxPin = Gpio::MM100_CAN_RX;
-#ifndef HW_HELLEN_UAEFI121
-  // this same file is used for both uaefi and uaefi121
-	engineConfiguration->can2RxPin = Gpio::B12;
-	engineConfiguration->can2TxPin = Gpio::B13;
-#endif
 
   engineConfiguration->mainRelayPin = Gpio::MM100_IGN7;
  	engineConfiguration->fanPin = Gpio::MM100_IGN8;
@@ -125,7 +112,7 @@ void setBoardDefaultConfiguration() {
 	// Some sensible defaults for other options
 	setCrankOperationMode();
 
-	setAlgorithm(LM_SPEED_DENSITY);
+	setAlgorithm(engine_load_mode_e::LM_SPEED_DENSITY);
 
 	engineConfiguration->injectorCompensationMode = ICM_FixedRailPressure;
 
@@ -139,32 +126,27 @@ void setBoardDefaultConfiguration() {
 }
 
 static Gpio OUTPUTS[] = {
-	Gpio::MM100_MEGA_UAEFI_INJ1, // 13B INJ_1
+	Gpio::MM100_INJ1, // 13B INJ_1
 	Gpio::MM100_INJ2, // 12B INJ_2
 	Gpio::MM100_INJ3, // 11B INJ_3
 	Gpio::MM100_INJ4, // 10B INJ_4
 	Gpio::MM100_INJ5, // 9B INJ_5
 	Gpio::MM100_INJ6, // 8B INJ_6
-/*
-	Gpio::MM100_INJ5, // B2 injector output 5
-	Gpio::MM100_INJ4, // B3 injector output 4
-	Gpio::MM100_INJ3, // B4 injector output 3
-	Gpio::MM100_INJ2, // B5 injector output 2
-	Gpio::MM100_INJ1, // B6 injector output 1
-	Gpio::MM100_INJ7, // B7 Low Side output 1
-	Gpio::MM100_IGN8, // B8 Fan Relay Weak Low Side output 2
-	Gpio::MM100_IGN7, // B9 Main Relay Weak Low Side output 1
-	Gpio::MM100_OUT_PWM2, // B16 Low Side output 4 / Fuel Pump
-	Gpio::MM100_OUT_PWM1, // B17 Low Side output 3
-	Gpio::MM100_INJ8, // B18 Low Side output 2
-	// high sides
-	Gpio::MM100_IGN6, // B10 Coil 6
-	Gpio::MM100_IGN4, // B11 Coil 4
-	Gpio::MM100_IGN3, // B12 Coil 3
-	Gpio::MM100_IGN5, // B13 Coil 5
-	Gpio::MM100_IGN2, // B14 Coil 2
-	Gpio::MM100_IGN1, // B15 Coil 1
-*/
+	Gpio::MM100_SPI2_CS, // 19B INJ_7
+	Gpio::MM100_SPI2_SCK, // 18B INJ_8
+	Gpio::MM100_INJ7, // 20B LS1
+	Gpio::MM100_INJ8, // 21B LS2
+	Gpio::MM100_OUT_PWM1, // 22B LS3
+	Gpio::MM100_OUT_PWM2, // 31C LS4
+	Gpio::MM100_IGN7, // 30C LS5_HOT
+	Gpio::MM100_IGN8, // 29C LS6_HOT
+	Gpio::MM100_IGN1, // Coil 1
+	Gpio::MM100_IGN2, // Coil 2
+	Gpio::MM100_IGN3, // Coil 3
+	Gpio::MM100_IGN4, // Coil 4
+	Gpio::MM100_IGN5, // Coil 5
+	Gpio::MM100_IGN6, // Coil 6
+	Gpio::MM100_LED2_GREEN, // 20D High Side Output
 };
 
 int getBoardMetaOutputsCount() {
@@ -172,7 +154,7 @@ int getBoardMetaOutputsCount() {
 }
 
 int getBoardMetaLowSideOutputsCount() {
-  return getBoardMetaOutputsCount() - 6;
+  return getBoardMetaOutputsCount() - 7;
 }
 
 Gpio* getBoardMetaOutputs() {
@@ -181,4 +163,9 @@ Gpio* getBoardMetaOutputs() {
 
 int getBoardMetaDcOutputsCount() {
     return 2;
+}
+
+void setup_custom_board_overrides() {
+	custom_board_DefaultConfiguration = super_uaefi_boardDefaultConfiguration;
+	custom_board_ConfigOverrides =  super_uaefi_boardConfigOverrides;
 }

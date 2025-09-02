@@ -8,19 +8,24 @@
 static void setBosch02880155868(injector_s& cfg) {
 	// http://www.boschdealer.com/specsheets/0280155868cs.jpg (use web.archive.org)
 #if (VBAT_INJECTOR_CURVE_PRESSURE_SIZE == 2) && (VBAT_INJECTOR_CURVE_SIZE == 8)
-    static const float vBattBins[8] = { 6.0, 8.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0 };
-	static const float pressureBins[2] = { 206.843, 413.685 };
-
     // see https://github.com/rusefi/rusefi/issues/7521 for adding more values
-    static const float corrBins[2][8] = {
-	    { 4.240, 2.483, 1.739, 1.501, 1.308, 1.149, 0.964, 0.913 },
-		{ 3.084, 1.641, 1.149, 1.194, 0.992, 0.759, 0.637, 0.603 },
-    };
-
-	copyArray(cfg.battLagCorrBattBins, vBattBins);
-	copyArray(cfg.battLagCorrPressBins,pressureBins);
-	copyTable(cfg.battLagCorrTable, corrBins);
+	copyTable(cfg.battLagCorrTable, engine_configuration_defaults::INJECTOR_BATT_LAG_CURR);
 #endif
+
+#if (VBAT_INJECTOR_CURVE_SIZE == 8)
+    static const float vBattBins[8] = { 6.0, 8.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0 };
+	copyArray(cfg.battLagCorrBattBins, vBattBins);
+#else
+  setLinearCurve(cfg.battLagCorrBattBins, 6, 15, 0.1);
+#endif
+
+#if (VBAT_INJECTOR_CURVE_PRESSURE_SIZE == 2)
+	static const float pressureBins[2] = { 206.843, 413.685 };
+	copyArray(cfg.battLagCorrPressBins,pressureBins);
+#else
+  setLinearCurve(cfg.battLagCorrPressBins, 300, 400, 1);
+#endif
+
 }
 
 static void setDefaultWarmupFuelEnrichment() {
@@ -186,8 +191,15 @@ static void setDefaultStftSettings() {
 static void setDefaultLtftSettings() {
 	auto& cfg = engineConfiguration->ltft;
 
-	// Default to disable
-	cfg.enabled = false;
+	// Default to allow learning, but do not apply learned corrections
+	cfg.enabled = true;
+	cfg.correctionEnabled = false;
+
+	// Default to very slow learning
+	cfg.timeConstant = 3000;
+
+	// 0.5% deadband
+	cfg.deadband = 0.5f;
 
 	// Allow +-12.5%
 	cfg.maxAdd = 12.5;
@@ -264,6 +276,14 @@ void setDefaultWallWetting() {
 		0.21, 0.40, 0.60, 0.79, 0.85, 0.90, 0.95, 1.00
 	};
 	copyArray(config->wwBetaMapValues, betaMap);
+}
+
+static void setDefaultWboSettings() {
+	for (size_t i = 0; i < CAN_WBO_COUNT; i++) {
+		engineConfiguration->canWbo[i].type = RUSEFI;
+		engineConfiguration->canWbo[i].reId = static_cast<can_wbo_re_id_e>(i);
+		engineConfiguration->canWbo[i].aemId = static_cast<can_wbo_aem_id_e>(i);
+	}
 }
 
 static void setDefaultLambdaProtection() {
@@ -360,6 +380,8 @@ void setDefaultFuel() {
 
 	// Some reasonable reference pressure that many vehicles use
 	engineConfiguration->fuelReferencePressure = 300;
+
+	setDefaultWboSettings();
 
 	// Lambda protection defaults
 	setDefaultLambdaProtection();

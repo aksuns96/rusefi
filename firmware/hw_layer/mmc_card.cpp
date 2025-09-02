@@ -18,7 +18,7 @@
 
 #include "buffered_writer.h"
 #include "status_loop.h"
-#include "binary_logging.h"
+#include "binary_mlg_logging.h"
 
 // Divide logs into 32Mb chunks.
 // With this opstion defined SW will pre-allocate file with given size and
@@ -33,8 +33,8 @@ static bool sdLoggerReady = false;
 
 #if EFI_PROD_CODE
 
-#include <stdio.h>
-#include <string.h>
+#include <cstdio>
+#include <cstring>
 #include "mmc_card.h"
 #include "ff.h"
 #include "mmc_card_util.h"
@@ -42,6 +42,10 @@ static bool sdLoggerReady = false;
 #include "hellen_meta.h"
 
 #include "rtc_helper.h"
+
+#if EFI_STORAGE_SD == TRUE
+#include "storage_sd.h"
+#endif // EFI_STORAGE_SD
 
 // TODO: do we need this additioal layer of buffering?
 // FIL structure already have buffer of FF_MAX_SS size
@@ -86,11 +90,11 @@ struct SdLogBufferWriter final : public BufferedWriter<512> {
 		FRESULT err = f_write(m_fd, buffer, count, &bytesWritten);
 
 		if (err) {
-			printError("log file write", err);
+			printFatFsError("log file write", err);
 			failed = true;
 			return 0;
 		} else if (bytesWritten != count) {
-			printError("log file write partitial", err);
+			printFatFsError("log file write partitial", err);
 			failed = true;
 			return 0;
 		} else {
@@ -208,6 +212,7 @@ static spi_device_e mmcSpiDevice = SPI_NONE;
 /**
  * MMC driver instance.
  */
+static NO_CACHE uint8_t mmcbuf[MMC_BUFFER_SIZE];
 MMCDriver MMCD1;
 
 /* MMC/SD over SPI driver configuration.*/
@@ -265,7 +270,7 @@ static const char *fatErrors[] = {
 };
 
 // print FAT error function
-void printError(const char *str, FRESULT f_error) {
+void printFatFsError(const char *str, FRESULT f_error) {
 	static int fatFsErrors = 0;
 
 	if (fatFsErrors++ > 16) {
@@ -273,7 +278,7 @@ void printError(const char *str, FRESULT f_error) {
 		return;
 	}
 
-	efiPrintf("FATfs Error \"%s\" %d %s", str, f_error, f_error <= FR_INVALID_PARAMETER ? fatErrors[f_error] : "unknown");
+	efiPrintf("%s FATfs Error %d %s", str, f_error, f_error <= FR_INVALID_PARAMETER ? fatErrors[f_error] : "unknown");
 }
 
 // format, file access and MSD are used exclusively, we can union.
@@ -311,7 +316,7 @@ static void sdStatistics() {
 		efiPrintf("filename=%s size=%d", logName, logBuffer.writen());
 	}
 #if EFI_FILE_LOGGING
-	efiPrintf("%d SD card fields", getSdCardFieldsCount());
+	efiPrintf("%d SD card fields", MLG::getSdCardFieldsCount());
 #endif
 }
 
@@ -361,8 +366,8 @@ static void sdLoggerCreateFile(FIL *fd) {
 	FRESULT err = f_open(fd, logName, FA_CREATE_ALWAYS | FA_WRITE);
 	if (err != FR_OK && err != FR_EXIST) {
 		sdStatus = SD_STATUS_OPEN_FAILED;
-		warning(ObdCode::CUSTOM_ERR_SD_MOUNT_FAILED, "SD: mount failed");
-		printError("log file create", err);	// else - show error
+		warning(ObdCode::CUSTOM_ERR_SD_MOUNT_FAILED, "SD: file open failed");
+		printFatFsError("log file create", err);	// else - show error
 		return;
 	}
 
@@ -370,7 +375,7 @@ static void sdLoggerCreateFile(FIL *fd) {
 	//pre-allocate data ahead
 	err = f_expand(fd, LOGGER_MAX_FILE_SIZE, /* Find and allocate */ 1);
 	if (err != FR_OK) {
-		printError("pre-allocate", err);
+		printFatFsError("pre-allocate", err);
 		// this is not critical
 	}
 #endif
@@ -444,7 +449,7 @@ static BaseBlockDevice* initializeMmcBlockDevice() {
 	spiCalcClockDiv(mmccfg.spip, &mmc_ls_spicfg, 250 * 1000);
 
 	// We think we have everything for the card, let's try to mount it!
-	mmcObjectInit(&MMCD1);
+	mmcObjectInit(&MMCD1, mmcbuf);
 	mmcStart(&MMCD1, &mmccfg);
 
 	// Performs the initialization procedure on the inserted card.
@@ -474,7 +479,8 @@ static void deinitializeMmcBlockDevide() {
 #endif // RE_SDC_MODE
 
 static const SDCConfig sdcConfig = {
-	.bus_width = RE_SDC_MODE
+	.bus_width = RE_SDC_MODE,
+	.slowdown = 0U
 };
 
 static bool isSdCardEnabled() {
@@ -556,18 +562,23 @@ static bool mountMmc() {
 		memset(&resources, 0x00, sizeof(resources));
 		// We were able to connect the SD card, mount the filesystem
 		memset(&MMC_FS, 0, sizeof(FATFS));
-		ret = (f_mount(&MMC_FS, "/", /* Mount immediately */ 1) == FR_OK);
+		ret = (f_mount(&MMC_FS, "", /* Mount immediately */ 1) == FR_OK);
 
 		if (ret == false) {
 			sdStatus = SD_STATUS_MOUNT_FAILED;
-			efiPrintf("MMC/SD card mount failed!");
+			efiPrintf("SD card mount failed!");
 		}
 	}
 
 	if (ret) {
 		sdStatus = SD_STATUS_MOUNTED;
-		efiPrintf("MMC/SD mounted!");
+		efiPrintf("SD card mounted!");
 	}
+
+#if EFI_STORAGE_SD == TRUE
+	// notificate storage subsystem
+	initStorageSD();
+#endif // EFI_STORAGE_SD
 
 #if EFI_TUNER_STUDIO
 	engine->outputChannels.sd_logging_internal = ret;
@@ -577,12 +588,22 @@ static bool mountMmc() {
 }
 
 /*
- * MMC card un-mount.
+ * SD card un-mount.
  * @return true if we had SD card alive
  */
 static void unmountMmc() {
+	FRESULT ret;
+
+#if EFI_STORAGE_SD == TRUE
+	// notificate storage subsystem
+	deinitStorageSD();
+#endif // EFI_STORAGE_SD
+
 	// FATFS: Unregister work area prior to discard it
-	f_mount(NULL, 0, 0);
+	ret = f_unmount("");
+	if (ret != FR_OK) {
+		printFatFsError("Umount failed", ret);
+	}
 
 #if EFI_TUNER_STUDIO
 	engine->outputChannels.sd_logging_internal = false;
@@ -594,12 +615,12 @@ static void unmountMmc() {
 #else // not EFI_PROD_CODE (simulator)
 
 bool initMmc() {
-	// Stub so the loop thinks the MMC is present
+	// Stub so the loop thinks the SD is present
 	return true;
 }
 
 bool mountMmc() {
-	// Stub so the loop thinks the MMC mounted OK
+	// Stub so the loop thinks the SD mounted OK
 	return true;
 }
 
@@ -624,7 +645,7 @@ static int sdLogger(FIL *fd)
 		incLogFileName(fd);
 		sdLoggerCreateFile(fd);
 		logBuffer.start(fd);
-		resetFileLogging();
+		MLG::resetFileLogging();
 		sdLoggerInitDone = true;
 	}
 
@@ -652,7 +673,7 @@ static int sdLogger(FIL *fd)
 		incLogFileName(fd);
 		sdLoggerCreateFile(fd);
 		logBuffer.start(fd);
-		resetFileLogging();
+		MLG::resetFileLogging();
 	}
 #endif
 
@@ -693,13 +714,13 @@ static bool sdFormat()
 	FRESULT ret = f_mkfs("", nullptr, resources.formatBuff, sizeof(resources.formatBuff));
 
 	if (ret) {
-		printError("format failed", ret);
+		printFatFsError("format failed", ret);
 		warning(ObdCode::CUSTOM_ERR_SD_MOUNT_FAILED, "SD: format failed");
 		goto exit;
 	}
 	ret = f_setlabel(SD_CARD_LABEL);
 	if (ret) {
-		printError("setlabel failed", ret);
+		printFatFsError("setlabel failed", ret);
 		// this is not critical
 		ret = FR_OK;
 	}
@@ -823,21 +844,13 @@ static int sdModeExecuter()
 
 static int sdReportStorageInit()
 {
-	if (mountMmc()) {
-		// write error report file if needed
-		errorHandlerWriteReportFile(&resources.fd);
+	// write error report file if needed
+	errorHandlerWriteReportFile(&resources.fd);
 
-		// check for any exist reports
-		errorHandlerCheckReportFiles();
+	// check for any exist reports
+	errorHandlerCheckReportFiles();
 
-		// done with SD card
-		unmountMmc();
-
-		return 0;
-	}
-
-	// card is failed to mount
-	return -1;
+	return 0;
 }
 
 PUBLIC_API_WEAK bool boardSdCardEnable() {
@@ -853,7 +866,7 @@ static THD_WORKING_AREA(mmcThreadStack, 3 * UTILITY_THREAD_STACK_SIZE);		// MMC 
 static THD_FUNCTION(MMCmonThread, arg) {
 	(void)arg;
 
-	chRegSetThreadName("MMC Card Logger");
+	chRegSetThreadName("SD Card Logger");
 
 	while (!boardSdCardEnable()) {
 		// wait until board enables peripheral
@@ -869,7 +882,16 @@ static THD_FUNCTION(MMCmonThread, arg) {
 	}
 
 	// Try to mount SD card, drop critical report if needed and check for previously stored reports
-	sdReportStorageInit();
+	if (mountMmc()) {
+		sdReportStorageInit();
+
+		sdMode = SD_MODE_ECU;
+
+#if EFI_STORAGE_SD == TRUE
+		// Give some time for storage manager to load settings from SD
+		chThdSleepMilliseconds(1000);
+#endif
+	}
 
 #if HAL_USE_USB_MSD
 	// Wait for the USB stack to wake up, or a 15 second timeout, whichever occurs first
@@ -910,7 +932,7 @@ static int mlgLogger() {
 
 	systime_t before = chVTGetSystemTime();
 
-	size_t writen = writeSdLogLine(logBuffer);
+	size_t writen = MLG::writeSdLogLine(logBuffer);
 
 	// Something went wrong (already handled), so cancel further writes
 	if (logBuffer.failed) {

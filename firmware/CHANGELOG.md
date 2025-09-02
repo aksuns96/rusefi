@@ -29,6 +29,28 @@ Release template (copy/paste this for new release):
 ## Unreleased
 
 ### Added
+ - OilTempGauge
+ - LUA_USER_HEAP is no longer used
+ - official binaries use gcc14
+ - Jeep EVA 36-2-2 trigger pattern
+ - migration to ChibiOS 21.11
+ - long term fuel trim LTFT using SD card #6223
+ - Add Lua hook for Launch Control request with 'setLaunchTrigger' method #7161
+ - option to use Fahrenheit units #4788
+ - lua editor highlighting #8413
+ - lua: count dropped CAN messages #8225
+ - larger LUA_canFrameCount on F7
+ - native OpenBLT updater should help Mac/Linux #8495
+
+### Fixed
+ - 3000gt 6g72 triggers cam and crank 3-0 more accuracy
+ - unneeded ETB PID reset causes AE and causes AFR dip #8392
+ - TPS AE Fuel During Cranking #8500
+ - migration fails in case of large diff #8524
+
+## June 2025 "Day 1210"
+
+### Added
  - SD card mode selection: do not wait for USB if vbatt voltage #7424
  - SD card mass storage read access performance improvements
  - migrate injector lag is now a table #7522

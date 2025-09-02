@@ -155,8 +155,8 @@ EngineTestHelper::EngineTestHelper(engine_type_e engineType, configuration_callb
 
 	extern bool hasInitGtest;
 	if (hasInitGtest) {
-		// Setup running in mock airmass mode if running actual tests
-		engineConfiguration->fuelAlgorithm = LM_MOCK;
+		// When built in unit tests mode UNSUPPORTED_ENUM_VALUE leads to acquiring of mockAirmassModel
+		engineConfiguration->fuelAlgorithm = engine_load_mode_e::UNSUPPORTED_ENUM_VALUE;
 
 		mockAirmass = std::make_unique<::testing::NiceMock<MockAirmass>>();
 		engine.mockAirmassModel = mockAirmass.get();
@@ -442,7 +442,7 @@ bool EngineTestHelper::assertEventExistsAtEnginePhase(const char *msg, action_s 
 	//std::cout << "executor->size():              " << executor->size() << std::endl;
 	//std::cout << "expected_action.getCallback():  0x" << std::hex << reinterpret_cast<size_t>(action_expected.getCallback()) << "; name: " << action_expected.getCallbackName() << std::endl;
 
-	for (size_t i = 0; i < executor->size(); i++) {
+	for (int i = 0; i < executor->size(); i++) {
 		auto event = executor->getForUnitTest(i);
 		assert(event != nullptr);
 

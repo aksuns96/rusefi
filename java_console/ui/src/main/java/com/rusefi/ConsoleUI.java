@@ -135,7 +135,11 @@ public class ConsoleUI {
 //        if (!linkManager.isLogViewer())
 //            tabbedPane.addTab("Settings", tabbedPane.settingsTab.createPane());
         if (!linkManager.isLogViewer()) {
+/*
+console live data tab is broken #8402
+
             tabbedPane.addTab("Live Data", LiveDataPane.createLazy(uiContext).getContent());
+ */
             tabbedPane.addTab("Sensors Live Data", new SensorsLiveDataPane(uiContext).getContent());
         }
 
@@ -223,8 +227,9 @@ public class ConsoleUI {
         if (JustOneInstance.isAlreadyRunning()) {
             int result = JOptionPane.showConfirmDialog(createOnTopParent(), "Looks like another instance is already running. Do you really want to start another instance?",
                 TITLE, JOptionPane.YES_NO_OPTION);
-            if (result == JOptionPane.NO_OPTION)
+            if (result == JOptionPane.NO_OPTION) {
                 System.exit(-1);
+            }
         }
         JustOneInstance.onStart();
         TunerStudioHelper.maybeCloseTs();

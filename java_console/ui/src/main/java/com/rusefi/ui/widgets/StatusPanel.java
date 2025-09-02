@@ -53,6 +53,11 @@ public class StatusPanel extends JPanel implements UpdateOperationCallbacks {
         setErrorState();
     }
 
+    @Override
+    public void warning() {
+        logTextArea.setBackground(Color.YELLOW);
+    }
+
     public void setSuccessState() {
         logTextArea.setBackground(LIGHT_GREEN);
     }
@@ -92,7 +97,7 @@ public class StatusPanel extends JPanel implements UpdateOperationCallbacks {
                 stringForTestArea += "\r\n";
             }
             logTextArea.append(stringForTestArea);
-            AutoupdateUtil.trueLayout(logTextArea);
+            AutoupdateUtil.trueLayoutAndRepaint(logTextArea);
         });
     }
 

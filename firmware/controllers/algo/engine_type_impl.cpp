@@ -20,12 +20,10 @@
 
 #include "GY6_139QMB.h"
 
-#include "nissan_primera.h"
 #include "nissan_vq.h"
 #include "tc_4l6x.h"
 #include "../board_id/qc_stim_meta.h"
 
-#include "mazda_miata.h"
 #include "mazda_miata_1_6.h"
 #include "mazda_miata_na8.h"
 #include "mazda_miata_vvt.h"
@@ -44,7 +42,6 @@
 #include "toyota_jz.h"
 #include "toyota_1NZ_FE.h"
 #include "mitsubishi_3A92.h"
-#include "mitsubishi_4G93.h"
 #include "ford_festiva.h"
 
 static_assert(libPROTEUS_STIM_QC == (int)engine_type_e::PROTEUS_STIM_QC);
@@ -79,6 +76,8 @@ void applyEngineType(engine_type_e engineType) {
 	case engine_type_e::SIMULATOR_CONFIG:
 	case engine_type_e::HELLEN_121_VAG_4_CYL:
 	case engine_type_e::MINIMAL_PINS:
+	case engine_type_e::UNUSED_5:
+	case engine_type_e::UNUSED_16:
 		// all basic settings are already set in prepareVoidConfiguration(), no need to set anything here
 		// nothing to do - we do it all in setBoardDefaultConfiguration
 		break;
@@ -213,15 +212,18 @@ void applyEngineType(engine_type_e engineType) {
 	  setGmSbcGen5();
 		break;
 
+#if defined(HW_HELLEN_8CHAN) || HW_PROTEUS || EFI_SIMULATOR
+	case engine_type_e::GM_SBC_GEN4:
+		setGmLs4();
+		break;
+#endif
+
 #if HW_PROTEUS || EFI_SIMULATOR
     case engine_type_e::WASTEGATE_PROTEUS_TEST:
         proteusDcWastegateTest();
         break;
     case engine_type_e::PROTEUS_NISSAN_VQ35:
         setProteusNissanVQ();
-		break;
-	case engine_type_e::PROTEUS_GM_LS_4:
-		setProteusGmLs4();
 		break;
 	case engine_type_e::PROTEUS_VW_B6:
 		setProteusVwPassatB6();
@@ -360,9 +362,6 @@ void applyEngineType(engine_type_e engineType) {
 	case engine_type_e::FORD_ASPIRE_1996:
 		setFordAspireEngineConfiguration();
 		break;
-	case engine_type_e::NISSAN_PRIMERA:
-		setNissanPrimeraEngineConfiguration();
-		break;
 	case engine_type_e::FRANKENSO_MIATA_NA6_MAP:
 		setMiataNA6_MAP_Frankenso();
 		break;
@@ -379,9 +378,6 @@ void applyEngineType(engine_type_e engineType) {
 		break;
 	case engine_type_e::MITSUBISHI_3A92:
 	    setMitsubishi3A92();
-	    break;
-	case engine_type_e::MITSUBISHI_4G93:
-	    setMitsubishi4G93();
 	    break;
 	case engine_type_e::FORD_INLINE_6_1995:
 		setFordInline6();

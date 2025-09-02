@@ -3,6 +3,7 @@ package com.rusefi.ui.basic;
 import com.rusefi.*;
 import com.rusefi.core.net.ConnectionAndMeta;
 import com.rusefi.core.ui.FrameHelper;
+import com.rusefi.maintenance.DfuFlasher;
 import com.rusefi.maintenance.StatusAnimation;
 import com.rusefi.tools.TunerStudioHelper;
 import com.rusefi.ui.BasicLogoHelper;
@@ -15,13 +16,15 @@ import javax.swing.*;
 import java.lang.reflect.InvocationTargetException;
 
 /**
+ * java -jar rusefi_console.jar basic-ui
+ * java -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -jar rusefi_console.jar basic-ui
+ * <p>
  * Focuses on firmware updater
  * Much simpler than {@link com.rusefi.StartupFrame}
  */
 public class BasicStartupFrame {
     private final String whiteLabel = ConnectionAndMeta.getWhiteLabel(ConnectionAndMeta.getProperties());
 
-    private final StatusPanel statusPanel = new StatusPanel();
     private final BasicUpdaterPanel basicUpdaterPanel;
     private final FrameHelper frame = FrameHelper.createFrame(
         whiteLabel + " basic console " + Launcher.CONSOLE_VERSION
@@ -33,17 +36,19 @@ public class BasicStartupFrame {
         runTool(null);
     }
 
-    public static void runTool(String[] args) throws InterruptedException, InvocationTargetException {
+    public static void runTool(@SuppressWarnings("unused") String[] args) throws InterruptedException, InvocationTargetException {
         DefaultExceptionHandler.install();
         SwingUtilities.invokeAndWait(() -> new BasicStartupFrame(ConnectivityContext.INSTANCE));
     }
 
-    public BasicStartupFrame(ConnectivityContext connectivityContext) {
+    private BasicStartupFrame(ConnectivityContext connectivityContext) {
         final JPanel panel = new JPanel();
+        StatusPanel statusPanel = new StatusPanel();
         basicUpdaterPanel = new BasicUpdaterPanel(connectivityContext,
             ConnectionAndMeta.isDefaultWhitelabel(whiteLabel),
             statusPanel
         );
+        DfuFlasher.dfuEnabledInCaseOfError = false;
         panel.add(basicUpdaterPanel.getContent());
         panel.add(statusPanel);
         TunerStudioHelper.maybeCloseTs();

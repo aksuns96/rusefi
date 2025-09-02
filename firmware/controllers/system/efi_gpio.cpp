@@ -150,6 +150,7 @@ EnginePins::EnginePins() :
 		acRelay("A/C Relay", CONFIG_PIN_OFFSETS(acRelay)),
 		fuelPumpRelay("Fuel pump Relay", CONFIG_PIN_OFFSETS(fuelPump)),
 		nitrousRelay("Nitrous Relay", CONFIG_PIN_OFFSETS(nitrousRelay)),
+		vvlRelay("VVL Relay", CONFIG_PIN_OFFSETS(vvlRelay)),
 #if EFI_HD_ACR
 		harleyAcr("Harley ACR", CONFIG_OFFSET(acrPin)),
 		harleyAcr2("Harley ACR 2", CONFIG_OFFSET(acrPin2)),
@@ -444,9 +445,9 @@ void NamedOutputPin::setHigh(const char *msg) {
 		efiPrintf("pin %s goes high", name);
 	}
 #endif // EFI_UNIT_TEST
-#if EFI_DEFAILED_LOGGING
+#if EFI_DETAILED_LOGGING
 //	signal->hi_time = hTimeNow();
-#endif /* EFI_DEFAILED_LOGGING */
+#endif /* EFI_DETAILED_LOGGING */
 
 	// turn the output level ACTIVE
 	setValue(msg, true);
@@ -799,6 +800,8 @@ void OutputPin::initPin(const char *msg, brain_pin_e p_brainPin, pin_output_mode
 }
 
 void OutputPin::deInit() {
+	efiPrintf("unregistering %s", hwPortname(brainPin));
+
 	// Unregister under lock - we don't want other threads mucking with the pin while we're trying to turn it off
 	chibios_rt::CriticalSectionLocker csl;
 
@@ -810,8 +813,6 @@ void OutputPin::deInit() {
 #if (BOARD_EXT_GPIOCHIPS > 0)
 	ext = false;
 #endif // (BOARD_EXT_GPIOCHIPS > 0)
-
-	efiPrintf("unregistering %s", hwPortname(brainPin));
 
 #if EFI_GPIO_HARDWARE && EFI_PROD_CODE
 	efiSetPadUnused(brainPin);

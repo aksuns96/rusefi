@@ -5,7 +5,6 @@ ENGINES_SRC_CPP = $(PROJECT_DIR)/config/engines/ford_aspire.cpp \
 	$(PROJECT_DIR)/config/engines/bmw_m52.cpp \
 	$(PROJECT_DIR)/config/engines/bmw_m73.cpp \
 	$(PROJECT_DIR)/config/engines/bmw_m73_mre.cpp \
-	$(PROJECT_DIR)/config/engines/mazda/mazda_miata.cpp \
 	$(PROJECT_DIR)/config/engines/mazda/mazda_miata_base_maps.cpp \
 	$(PROJECT_DIR)/config/engines/mazda/mazda_miata_1_6.cpp \
 	$(PROJECT_DIR)/config/engines/mazda/mazda_miata_na8.cpp \
@@ -15,12 +14,10 @@ ENGINES_SRC_CPP = $(PROJECT_DIR)/config/engines/ford_aspire.cpp \
 	$(PROJECT_DIR)/config/engines/ford_1995_inline_6.cpp \
 	$(PROJECT_DIR)/config/engines/gm_ls_4.cpp \
 	$(PROJECT_DIR)/config/engines/gm_sbc.cpp \
-	$(PROJECT_DIR)/config/engines/nissan_primera.cpp \
 	$(PROJECT_DIR)/config/engines/nissan_vq.cpp \
 	$(PROJECT_DIR)/config/engines/harley.cpp \
 	$(PROJECT_DIR)/config/engines/mercedes.cpp \
 	$(PROJECT_DIR)/config/engines/mitsubishi_3A92.cpp \
-	$(PROJECT_DIR)/config/engines/mitsubishi_4G93.cpp \
 	$(PROJECT_DIR)/config/engines/honda.cpp \
 	$(PROJECT_DIR)/config/engines/honda_600.cpp \
 	$(PROJECT_DIR)/config/engines/honda_obd1.cpp \

@@ -12,6 +12,7 @@
 #define TS_PAGE_SETTINGS			0x0000
 // Issue TS zeroes LSB byte of pageIdentifier
 #define TS_PAGE_SCATTER_OFFSETS		0x0100
+#define TS_PAGE_LTFT_TRIMS			0x0200
 
 typedef struct {
 	int queryCommandCounter;
@@ -54,7 +55,7 @@ int getSecondsSinceChannelsRequest();
 
 void updateTunerStudioState();
 
-bool isTuningNow();
+bool isTuningVeNow();
 void startTunerStudioConnectivity();
 bool needToTriggerTsRefresh();
 void onApplyPreset();
@@ -89,5 +90,7 @@ public:
 
 };
 #endif
+
+bool isTouchingArea(uint16_t offset, uint16_t count, int areaStart, int areaSize);
 
 #endif /* EFI_TUNER_STUDIO */

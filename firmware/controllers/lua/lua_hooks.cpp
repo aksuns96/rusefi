@@ -13,6 +13,7 @@
 #include "lua_pid.h"
 #include "start_stop.h"
 #include "tinymt32.h" // TL,DR: basic implementation of 'random'
+#include "signaldebounce.h"
 
 #if EFI_PROD_CODE && HW_HELLEN
 #include "hellen_meta.h"
@@ -51,7 +52,7 @@ static int lua_vin(lua_State* l) {
 		lua_pushnil(l);
 	} else {
 		char value = engineConfiguration->vinNumber[zeroBasedCharIndex];
-		lua_pushnumber(l, value);
+		lua_pushinteger(l, value);
 	}
 	return 1;
 }
@@ -65,8 +66,10 @@ static int lua_readpin(lua_State* l) {
 		lua_pushnil(l);
 	} else {
 		int physicalValue = palReadPad(getHwPort("read", pin), getHwPin("read", pin));
-		lua_pushnumber(l, physicalValue);
+		lua_pushinteger(l, physicalValue);
 	}
+#else
+    UNUSED(l);
 #endif
 	return 1;
 }
@@ -160,8 +163,9 @@ uint32_t getLuaArray(lua_State* l, int paramIndex, uint8_t *data, uint32_t size)
 		if (result > size) {
 			luaL_error(l, "Input array longer than buffer");
 		}
-
-		data[result - 1] = val;
+		else {
+			data[result - 1] = val;
+		}
 	}
 	return result;
 }
@@ -362,6 +366,7 @@ bool getAuxDigital(int index) {
 #if EFI_PROD_CODE
     return efiReadPin(engineConfiguration->luaDigitalInputPins[index]);
 #else
+    UNUSED(index);
     return false;
 #endif
 }
@@ -628,7 +633,9 @@ int lua_canRxAddMask(lua_State* l) {
 }
 #endif // EFI_CAN_SUPPORT
 
-PUBLIC_API_WEAK void boardConfigureLuaHooks(lua_State* lState) { }
+PUBLIC_API_WEAK void boardConfigureLuaHooks(lua_State* lState) {
+    UNUSED(lState);
+}
 
 static tinymt32_t tinymt;
 
@@ -736,7 +743,7 @@ void configureRusefiLuaHooks(lua_State* lState) {
 	});
     // time since console or TunerStudio
 	lua_register(lState, "secondsSinceTsActivity", [](lua_State* l) {
-		lua_pushnumber(l, getSecondsSinceChannelsRequest());
+		lua_pushinteger(l, getSecondsSinceChannelsRequest());
 		return 1;
 	});
 
@@ -761,7 +768,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 			  luaL_error(l, "Invalid button index: %d", humanIndex);
 			  return 0;
 			}
-			lua_pushnumber(l, luaCommandCounters[humanIndex - 1]);
+			lua_pushinteger(l, luaCommandCounters[humanIndex - 1]);
 			return 1;
 	});
 #endif // EFI_PROD_CODE || EFI_SIMULATOR
@@ -781,8 +788,8 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 			uint16_t sig1;
 			auto humanIndex = luaL_checkinteger(l, 1);
 			/*auto ret = */getSentValues(static_cast<SentInput>(humanIndex), &sig0, &sig1);
-			lua_pushnumber(l, sig0);
-			lua_pushnumber(l, sig1);
+			lua_pushinteger(l, sig0);
+			lua_pushinteger(l, sig1);
 			return 2;
 	});
 #endif // EFI_SENT_SUPPORT
@@ -800,7 +807,19 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 		engine->engineState.updateSparkSkip();
 		return 0;
 	});
+	lua_register(lState, "setLaunchTrigger", [](lua_State* l) {
+		auto value = luaL_checkinteger(l, 1);
+  	engine->launchController.luaLaunchState = value;
+		return 0;
+	});
 #endif // EFI_LAUNCH_CONTROL
+#if EFI_ANTILAG_SYSTEM
+	lua_register(lState, "setRollingIdleTrigger", [](lua_State* l) {
+		auto value = luaL_checkinteger(l, 1);
+  	engine->antilagController.luaAntilagState = value;
+		return 0;
+	});
+#endif // EFI_ANTILAG_SYSTEM
 
 #if EFI_EMULATE_POSITION_SENSORS && !EFI_UNIT_TEST
 	lua_register(lState, "selfStimulateRPM", [](lua_State* l) {
@@ -835,14 +854,21 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 		return 0;
 	});
 
-	lua_register(lState, "enableCanRxWorkaround", [](lua_State* l) {
+	lua_register(lState, "enableCanRxWorkaround", [](lua_State*) {
 		// that's about global_can_data
 		engineConfiguration->luaCanRxWorkaround = true;
 		return 0;
 	});
 // high-performance CANbus should be done on F7+, let's preserve couple of priceless bytes on F4
 #if !defined(STM32F4)
-	lua_register(lState, "disableExtendedCanBroadcast", [](lua_State* l) {
+#if EFI_CAN_SUPPORT
+	lua_register(lState, "getCanRxDropped", [](lua_State* l) {
+	  auto count = getLuaCanRxDropped();
+    lua_pushinteger(l, count);
+		return 1;
+	});
+#endif // EFI_CAN_SUPPORT
+	lua_register(lState, "disableExtendedCanBroadcast", [](lua_State*) {
 		// that's about global_can_data
 		engineConfiguration->enableExtendedCanBroadcast = false;
 		return 0;
@@ -850,13 +876,23 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 	lua_register(lState, "getCanBaudRate", [](lua_State* l) {
 	  auto index = luaL_checkinteger(l, 1);
 	  if (index == 1) {
-	    lua_pushnumber(l, engineConfiguration->canBaudRate);
+	    lua_pushinteger(l, engineConfiguration->canBaudRate);
 	  } else {
-	    lua_pushnumber(l, engineConfiguration->can2BaudRate);
+	    lua_pushinteger(l, engineConfiguration->can2BaudRate);
 	  }
 		return 1;
 	});
 #endif // STM32F4
+
+#if !defined(STM32F4) || defined(WITH_LUA_GET_GPPWM_STATE)
+	lua_register(lState, "getGpPwm", [](lua_State* l) {
+	  auto index = luaL_checkinteger(l, 1);
+	  // this works due to updateGppwm being invoked from periodicSlowCallback
+	  auto result = engine->outputChannels.gppwmOutput[index];
+	  lua_pushnumber(l, result);
+		return 1;
+	});
+#endif
 
 #if EFI_ELECTRONIC_THROTTLE_BODY && EFI_PROD_CODE
   lua_register(lState, "getEtbTarget", [](lua_State* l) {
@@ -869,7 +905,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 	lua_register(lState, "restartEtb", [](lua_State*) {
 		// this is about Lua sensor acting in place of real analog PPS sensor
 		// todo: smarter implementation
-		doInitElectronicThrottle();
+		doInitElectronicThrottle(true); // lame, we run with 'isStartupInit=true' in order to reset, NOT COOL
 		return 0;
 	});
 #endif // EFI_ELECTRONIC_THROTTLE_BODY
@@ -881,7 +917,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 		auto trimLength = luaL_checkinteger(l, 2);
 		int crc = crc8(data, minI(length, trimLength));
 
-		lua_pushnumber(l, crc);
+		lua_pushinteger(l, crc);
 		return 1;
 	});
 
@@ -935,6 +971,13 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 		auto luaAdjustment = luaL_checknumber(l, 1);
 
 		setEtbLuaAdjustment(luaAdjustment);
+
+		return 0;
+	});
+	lua_register(lState, "setEwgAdd", [](lua_State* l) {
+		auto luaAdjustment = luaL_checknumber(l, 1);
+
+		setEwgLuaAdjustment(luaAdjustment);
 
 		return 0;
 	});
@@ -1026,7 +1069,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 			// spinning-up or cranking
 			luaStateCode = 1;
 		}
-		lua_pushnumber(l, luaStateCode);
+		lua_pushinteger(l, luaStateCode);
 		return 1;
 	});
 #endif //EFI_SHAFT_POSITION_INPUT
@@ -1046,13 +1089,13 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 		}
 		return 0;
 	});
-	lua_register(lState, CMD_BURNCONFIG, [](lua_State* l) {
+	lua_register(lState, CMD_BURNCONFIG, [](lua_State*) {
 	  requestBurn();
 		return 0;
 	});
 
 	lua_register(lState, "getGlobalConfigurationVersion", [](lua_State* l) {
-		lua_pushnumber(l, engine->getGlobalConfigurationVersion());
+		lua_pushinteger(l, engine->getGlobalConfigurationVersion());
 		return 1;
 	});
 
@@ -1113,7 +1156,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 	});
 	lua_register(lState, "getTimeSinceTriggerEventMs", [](lua_State* l) {
 		int result = engine->triggerCentral.m_lastEventTimer.getElapsedUs() / 1000;
-		lua_pushnumber(l, result);
+		lua_pushinteger(l, result);
 		return 1;
 	});
 #endif // EFI_SHAFT_POSITION_INPUT
@@ -1133,7 +1176,7 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
   /* todo: hasCriticalReportFile method #7291
 	lua_register(lState, "hasCriticalReportFile", [](lua_State*) {
 		// todo: actual method to scan SD card for error report files
-		lua_pushnumber(l, hasCriticalReportFile());
+		lua_pushinteger(l, hasCriticalReportFile());
 	  return 1;
   }
 */
@@ -1159,4 +1202,17 @@ extern int luaCommandCounters[LUA_BUTTON_COUNT];
 	});
 #endif // EFI_DAC
 
+    LuaClass<SignalDebounce> luaDebounce(lState, "SignalDebounce");
+    luaDebounce
+        .ctor<float>()
+        .fun("set", &SignalDebounce::set)
+        .fun("get", &SignalDebounce::get);
+
+#if EFI_UNIT_TEST
+    lua_register(lState, "advanceTimeUs", [](lua_State *l){
+        auto us = luaL_checknumber(l, 1);
+        advanceTimeUs(us);
+        return 0;
+    });
+#endif // EFI_UNIT_TEST
 }

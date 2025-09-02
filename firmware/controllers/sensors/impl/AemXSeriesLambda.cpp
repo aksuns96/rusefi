@@ -1,17 +1,21 @@
 #include "pch.h"
+#include "ego.h"
 
 #if EFI_CAN_SUPPORT || EFI_UNIT_TEST
 #include "AemXSeriesLambda.h"
 #include "wideband_firmware/for_rusefi/wideband_can.h"
+#include "rusefi_wideband.h"
 
 static constexpr uint32_t aem_base    = 0x180;
 static constexpr uint32_t rusefi_base = WB_DATA_BASE_ADDR;
+// sensor transmits at 100hz, allow a frame to be missed
+static constexpr efidur_t sensor_timeout = MS2NT(3 * WBO_TX_PERIOD_MS);
 
 AemXSeriesWideband::AemXSeriesWideband(uint8_t sensorIndex, SensorType type)
 	: CanSensorBase(
 		0,	// ID passed here doesn't matter since we override acceptFrame
 		type,
-		MS2NT(3 * WBO_TX_PERIOD_MS)	// sensor transmits at 100hz, allow a frame to be missed
+		sensor_timeout
 	)
 	, m_sensorIndex(sensorIndex)
 {
@@ -19,14 +23,31 @@ AemXSeriesWideband::AemXSeriesWideband(uint8_t sensorIndex, SensorType type)
     isValid = m_isFault = m_afrIsValid = false;
     // wait for first rusEFI WBO standard frame with protocol version field
     fwUnsupported = true;
-    fwOutdated = true;
+    // Do not light "FW: need update" indicator until we get some data from WBO
+    fwOutdated = false;
 }
 
 can_wbo_type_e AemXSeriesWideband::sensorType() const {
-	return m_sensorIndex ? engineConfiguration->wboType2 : engineConfiguration->wboType1;
+	return engineConfiguration->canWbo[m_sensorIndex].type;
 }
 
-bool AemXSeriesWideband::acceptFrame(const CANRxFrame& frame) const {
+uint32_t AemXSeriesWideband::getReCanId() const {
+	// 0th sensor is 0x190 and 0x191, 1st sensor is 0x192 and 0x193
+	return rusefi_base + 2 * engineConfiguration->canWbo[m_sensorIndex].reId;
+}
+
+uint32_t AemXSeriesWideband::getAemCanId() const {
+	// 0th sensor is 0x00000180, 1st sensor is 0x00000181, etc
+	return aem_base + engineConfiguration->canWbo[m_sensorIndex].aemId;
+}
+
+bool AemXSeriesWideband::acceptFrame(const size_t busIndex, const CANRxFrame& frame) const {
+#if !EFI_UNIT_TEST
+	if (busIndex != getWidebandBus()) {
+		return false;
+	}
+#endif
+
 	if (frame.DLC != 8) {
 		return false;
 	}
@@ -40,14 +61,14 @@ bool AemXSeriesWideband::acceptFrame(const CANRxFrame& frame) const {
 	// RusEFI wideband uses standard CAN IDs
 	if ((!CAN_ISX(frame)) && (type == RUSEFI)) {
 		// 0th sensor is 0x190 and 0x191, 1st sensor is 0x192 and 0x193
-		uint32_t rusefiBaseId = rusefi_base + 2 * (engineConfiguration->flipWboChannels ? (1 - m_sensorIndex) : m_sensorIndex);
+		uint32_t rusefiBaseId = getReCanId();
 		return ((CAN_SID(frame) == rusefiBaseId) || (CAN_SID(frame) == rusefiBaseId + 1));
 	}
 
 	// AEM uses extended CAN ID
 	if ((CAN_ISX(frame)) && (type == AEM)) {
 		// 0th sensor is 0x00000180, 1st sensor is 0x00000181, etc
-		uint32_t aemXSeriesId = aem_base + m_sensorIndex;
+		uint32_t aemXSeriesId = getAemCanId();
 		return (CAN_EID(frame) == aemXSeriesId);
 	}
 
@@ -61,16 +82,7 @@ bool AemXSeriesWideband::isHeaterAllowed() {
 void AemXSeriesWideband::refreshState() {
 	can_wbo_type_e type = sensorType();
 
-	if ((type == RUSEFI) && (!isHeaterAllowed())) {
-		faultCode = static_cast<uint8_t>(wbo::Fault::NotAllowed);
-		isValid = false;
-		// Do not check for any errors while heater is not allowed
-		return;
-	}
-
-	// Communication timeout is priority error code
-	auto value = get();
-	if ((!value) && (value.Code == UnexpectedCode::Timeout)) {
+	if (getTimeNowNt() - sensor_timeout > m_lastUpdate) {
 		faultCode = static_cast<uint8_t>(wbo::Fault::CanSilent);
 		isValid = false;
 		return;
@@ -78,6 +90,13 @@ void AemXSeriesWideband::refreshState() {
 
 	if (type == RUSEFI) {
 		// This is RE WBO
+		if (!isHeaterAllowed()) {
+			faultCode = static_cast<uint8_t>(wbo::Fault::NotAllowed);
+			isValid = false;
+			// Do not check for any errors while heater is not allowed
+			return;
+		}
+
 		isValid = m_afrIsValid;
 		if (m_faultCode != static_cast<uint8_t>(wbo::Fault::None)) {
 			// Report error code from WBO
@@ -113,6 +132,7 @@ void AemXSeriesWideband::refreshState() {
 }
 
 void AemXSeriesWideband::decodeFrame(const CANRxFrame& frame, efitick_t nowNt) {
+	bool accepted = false;
 	// accept frame has already guaranteed that this message belongs to us
 	// We just have to check if it's AEM or rusEFI
 	if (sensorType() == RUSEFI){
@@ -124,10 +144,14 @@ void AemXSeriesWideband::decodeFrame(const CANRxFrame& frame, efitick_t nowNt) {
 			decodeRusefiDiag(frame);
 		} else {
 			// low bit not set, this is standard frame
-			decodeRusefiStandard(frame, nowNt);
+			accepted = decodeRusefiStandard(frame, nowNt);
 		}
 	} else /* if (sensorType() == AEM) */ {
-		decodeAemXSeries(frame, nowNt);
+		accepted = decodeAemXSeries(frame, nowNt);
+	}
+
+	if (accepted) {
+		m_lastUpdate = nowNt;
 	}
 
 	// Do refresh on each CAN packet
@@ -157,29 +181,30 @@ bool AemXSeriesWideband::decodeAemXSeries(const CANRxFrame& frame, efitick_t now
 	}
 
 	setValidValue(lambdaFloat, nowNt);
+	refreshSmoothedLambda(lambdaFloat);
 	return true;
 }
 
-void AemXSeriesWideband::decodeRusefiStandard(const CANRxFrame& frame, efitick_t nowNt) {
+bool AemXSeriesWideband::decodeRusefiStandard(const CANRxFrame& frame, efitick_t nowNt) {
 	auto data = reinterpret_cast<const wbo::StandardData*>(&frame.data8[0]);
 
 	if (data->Version > RUSEFI_WIDEBAND_VERSION) {
 		firmwareError(ObdCode::OBD_WB_FW_Mismatch, "Wideband controller index %d has newer protocol version (0x%02x while 0x%02x supported), please update ECU FW!",
 			m_sensorIndex, data->Version, RUSEFI_WIDEBAND_VERSION);
 		fwUnsupported = true;
-		return;
+		return false;
 	}
 
 	if (data->Version < RUSEFI_WIDEBAND_VERSION_MIN) {
 		firmwareError(ObdCode::OBD_WB_FW_Mismatch, "Wideband controller index %d has outdated protocol version (0x%02x while minimum 0x%02x expected), please update WBO!",
 			m_sensorIndex, data->Version, RUSEFI_WIDEBAND_VERSION_MIN);
 		fwUnsupported = true;
-		return;
+		return false;
 	}
 
 	fwUnsupported = false;
 	// compatible, but not latest
-	fwOutdated = (data->Version != RUSEFI_WIDEBAND_VERSION_MIN);
+	fwOutdated = (data->Version != RUSEFI_WIDEBAND_VERSION);
 	// TODO: request and check builddate
 
 	tempC = data->TemperatureC;
@@ -188,10 +213,29 @@ void AemXSeriesWideband::decodeRusefiStandard(const CANRxFrame& frame, efitick_t
 
 	if (!m_afrIsValid) {
 		invalidate();
-		return;
+	} else {
+		setValidValue(lambda, nowNt);
+		refreshSmoothedLambda(lambda);
 	}
 
-	setValidValue(lambda, nowNt);
+	return true;
+}
+
+void AemXSeriesWideband::refreshSmoothedLambda(float lambda) {
+	switch (type()) {
+	case SensorType::Lambda1: {
+			expAverageLambda1.setSmoothingFactor(engineConfiguration->afrExpAverageAlpha);
+			smoothedLambda1Sensor.setValidValue(expAverageLambda1.initOrAverage(lambda), getTimeNowNt());
+			break;
+	}
+	case SensorType::Lambda2: {
+			expAverageLambda2.setSmoothingFactor(engineConfiguration->afrExpAverageAlpha);
+			smoothedLambda2Sensor.setValidValue(expAverageLambda2.initOrAverage(lambda), getTimeNowNt());
+			break;
+	}
+	default:
+		break;
+	}
 }
 
 void AemXSeriesWideband::decodeRusefiDiag(const CANRxFrame& frame) {

@@ -131,6 +131,10 @@ float getRunningFuel(float baseFuel) {
 	correction *= engine->module<NitrousController>().unmock().getFuelCoefficient();
 #endif
 
+#ifdef MODULE_VVL_CONTROLLER
+	correction *= engine->module<VvlController>().unmock().getFuelCoefficient();
+#endif /* MODULE_VVL_CONTROLLER */
+
 	correction *= getLimpManager()->getLimitingFuelCorrection();
 
 	float runningFuel = baseFuel * correction;
@@ -150,19 +154,22 @@ static MafAirmass mafAirmass(veMap);
 static AlphaNAirmass alphaNAirmass(veMap);
 
 AirmassModelBase* getAirmassModel(engine_load_mode_e mode) {
-	switch (mode) {
-		case LM_SPEED_DENSITY: return &sdAirmass;
-		case LM_REAL_MAF: return &mafAirmass;
-		case LM_ALPHA_N: return &alphaNAirmass;
-#if EFI_LUA
-		case LM_LUA: return &(getLuaAirmassModel());
-#endif
 #if EFI_UNIT_TEST
-		case LM_MOCK: return engine->mockAirmassModel;
+	if (mode == engine_load_mode_e::UNSUPPORTED_ENUM_VALUE) {
+		return engine->mockAirmassModel;
+	}
 #endif
-		default:
-			firmwareError(ObdCode::CUSTOM_ERR_ASSERT, "Invalid airmass mode %d", engineConfiguration->fuelAlgorithm);
-			return nullptr;
+
+	switch (mode) {
+	case engine_load_mode_e::LM_SPEED_DENSITY: return &sdAirmass;
+	case engine_load_mode_e::LM_REAL_MAF: return &mafAirmass;
+	case engine_load_mode_e::LM_ALPHA_N: return &alphaNAirmass;
+#if EFI_LUA
+	case engine_load_mode_e::LM_LUA: return &(getLuaAirmassModel());
+#endif
+	default:
+		firmwareError(ObdCode::CUSTOM_ERR_ASSERT, "Invalid airmass mode %d", engineConfiguration->fuelAlgorithm);
+		return nullptr;
 	}
 }
 
@@ -327,19 +334,40 @@ float getInjectionMass(float rpm) {
 		engine->module<InjectorModelSecondary>()->prepare();
 	}
 
+	// This variable will hold the extra fuel mass from legacy AE modes
+	float tpsFuelMass = 0;
+
+	// Get the AE value (it will be 0 if predictive mode is active)
 	float tpsAccelEnrich = engine->module<TpsAccelEnrichment>()->getTpsEnrichment();
 	efiAssert(ObdCode::CUSTOM_ERR_ASSERT, !std::isnan(tpsAccelEnrich), "NaN tpsAccelEnrich", 0);
 	engine->engineState.tpsAccelEnrich = tpsAccelEnrich;
 
 	float tpsAccelPerInjection = durationMultiplier * tpsAccelEnrich;
 
-  if (engineConfiguration->tpsTpsPercentMode) {
-  	return injectionFuelMass * (1 + tpsAccelPerInjection);
-  } else {
-	  // For legacy reasons, the TPS accel table is in units of milliseconds, so we have to convert BACK to mass
-	  float tpsFuelMass = engine->module<InjectorModelPrimary>()->getFuelMassForDuration(tpsAccelPerInjection);
-	  return injectionFuelMass + tpsFuelMass;
+	// Use a switch to handle all AE modes
+	switch ((accel_enrichment_mode_e)engineConfiguration->accelEnrichmentMode) {
+		case AE_MODE_PERCENT_ADDER:
+			// Treat the tpsAccelEnrich value as a percentage
+			tpsFuelMass = injectionFuelMass * tpsAccelPerInjection;
+			break;
+
+		case AE_MODE_MS_ADDER:
+			// For legacy reasons, the TPS accel table is in units of milliseconds,
+			// so we have to convert BACK to mass
+			tpsFuelMass = engine->module<InjectorModelPrimary>()->getFuelMassForDuration(tpsAccelPerInjection);
+			break;
+
+		case AE_MODE_PREDICTIVE_MAP:
+			// Do nothing here. Fuel correction has already been handled by providing a
+			// corrected MAP value to the getBaseFuelMass() calculation.
+			break;
+
+		default:
+			criticalError("Invalid accelEnrichmentMode %d", engineConfiguration->accelEnrichmentMode);
+			break;
 	}
+
+	return injectionFuelMass + tpsFuelMass;
 }
 #endif
 

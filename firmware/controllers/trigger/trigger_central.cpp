@@ -32,9 +32,6 @@
 WaveChart waveChart;
 #endif /* EFI_ENGINE_SNIFFER */
 
-static scheduling_s debugToggleScheduling;
-#define DEBUG_PIN_DELAY US2NT(60)
-
 #define TRIGGER_WAVEFORM(x) getTriggerCentral()->triggerShape.x
 
 #if EFI_SHAFT_POSITION_INPUT
@@ -146,21 +143,6 @@ angle_t TriggerCentral::syncEnginePhaseAndReport(int divider, int remainder) {
 	return totalShift;
 }
 
-static void turnOffAllDebugFields() {
-#if EFI_PROD_CODE
-	for (int index = 0;index<TRIGGER_INPUT_PIN_COUNT;index++) {
-		if (isBrainPinValid(engineConfiguration->triggerInputDebugPins[index])) {
-			writePad("trigger debug", engineConfiguration->triggerInputDebugPins[index], 0);
-		}
-	}
-	for (int index = 0;index<CAM_INPUTS_COUNT;index++) {
-		if (isBrainPinValid(engineConfiguration->camInputsDebug[index])) {
-			writePad("cam debug", engineConfiguration->camInputsDebug[index], 0);
-		}
-	}
-#endif /* EFI_PROD_CODE */
-}
-
 PUBLIC_API_WEAK angle_t customAdjustCustom(TriggerCentral *tc, vvt_mode_e vvtMode) {
   return 0;
 }
@@ -211,6 +193,7 @@ static angle_t adjustCrankPhase(int camIndex) {
 	case VVT_CHRYSLER_PHASER:
 	case VVT_HONDA_K_EXHAUST:
 	case VVT_HONDA_CBR_600:
+	case VVT_SUBARU_7TOOTH:
 		return tc->syncEnginePhaseAndReport(crankDivider, 0);
 	case VVT_CUSTOM_25:
 	case VVT_CUSTOM_26:
@@ -220,6 +203,8 @@ static angle_t adjustCrankPhase(int camIndex) {
 	    // with 4 evenly spaced tooth we cannot use this wheel for engine sync
         criticalError("Honda K Intake is not suitable for engine sync");
         [[fallthrough]];
+	case VVT_CUSTOM_1:
+	case VVT_CUSTOM_2:
 	case VVT_INACTIVE:
 		// do nothing
 		return 0;
@@ -242,13 +227,6 @@ static angle_t wrapVvt(angle_t vvtPosition, int period) {
 }
 
 static void logVvtFront(bool useOnlyRise, bool isImportantFront, TriggerValue front, efitick_t nowNt, int index) {
-	if (isImportantFront && isBrainPinValid(engineConfiguration->camInputsDebug[index])) {
-#if EFI_PROD_CODE
-		writePad("cam debug", engineConfiguration->camInputsDebug[index], 1);
-#endif /* EFI_PROD_CODE */
-		getScheduler()->schedule("dbg_on", &debugToggleScheduling, nowNt + DEBUG_PIN_DELAY, action_s::make<turnOffAllDebugFields>());
-	}
-
 	if (!useOnlyRise || engineConfiguration->displayLogicLevelsInEngineSniffer) {
 		// If we care about both edges OR displayLogicLevel is set, log every front exactly as it is
 		addEngineSnifferVvtEvent(index, front == TriggerValue::RISE ? FrontDirection::UP : FrontDirection::DOWN);
@@ -281,8 +259,20 @@ extern bool main_loop_started;
   return false;
 }
 
-void hwHandleVvtCamSignal(bool isRising, efitick_t timestamp, int index) {
-	hwHandleVvtCamSignal(isRising ? TriggerValue::RISE : TriggerValue::FALL, timestamp, index);
+/**
+ * This function is called by all "hardware" trigger inputs:
+ *  - Hardware triggers
+ *  - Trigger replay from CSV (unit tests)
+ */
+void hwHandleVvtCamSignal(bool isRising, efitick_t nowNt, int index) {
+	int camIndex = CAM_BY_INDEX(index);
+	bool invertSetting = camIndex == 0 ? engineConfiguration->invertCamVVTSignal : engineConfiguration->invertExhaustCamVVTSignal;
+
+	if (isRising ^ invertSetting) {
+		hwHandleVvtCamSignal(TriggerValue::RISE, nowNt, index);
+	} else {
+		hwHandleVvtCamSignal(TriggerValue::FALL, nowNt, index);
+	}
 }
 
 // 'invertCamVVTSignal' is already accounted by the time this method is invoked
@@ -536,13 +526,6 @@ void handleShaftSignal(int signalIndex, bool isRising, efitick_t timestamp) {
 			 */
 			return;
 		}
-	}
-
-	if (engineConfiguration->triggerInputDebugPins[signalIndex] != Gpio::Unassigned) {
-#if EFI_PROD_CODE
-		writePad("trigger debug", engineConfiguration->triggerInputDebugPins[signalIndex], 1);
-#endif /* EFI_PROD_CODE */
-		getScheduler()->schedule("dbg_off", &debugToggleScheduling, timestamp + DEBUG_PIN_DELAY, action_s::make<turnOffAllDebugFields>());
 	}
 
 #if EFI_TOOTH_LOGGER
@@ -1104,9 +1087,9 @@ void onConfigurationChangeTriggerCallback() {
 		getTriggerCentral()->noiseFilter.resetAccumSignalData();
 	#endif
 	}
-#if EFI_DEFAILED_LOGGING
+#if EFI_DETAILED_LOGGING
 	efiPrintf("isTriggerConfigChanged=%d", triggerConfigChanged);
-#endif /* EFI_DEFAILED_LOGGING */
+#endif /* EFI_DETAILED_LOGGING */
 
 	// we do not want to miss two updates in a row
 	getTriggerCentral()->triggerConfigChangedOnLastConfigurationChange = getTriggerCentral()->triggerConfigChangedOnLastConfigurationChange || changed;

@@ -65,12 +65,16 @@ PUBLIC_API_WEAK trigger_type_e getCustomVvtTriggerType(vvt_mode_e vvtMode) {
 		return trigger_type_e::TT_HALF_MOON; // we have to return something for the sake of -Werror=return-type
 }
 
+// todo: move this method from engine.cpp already?
 /**
  * VVT decoding delegates to universal trigger decoder. Here we map vvt_mode_e into corresponding trigger_type_e
  */
 trigger_type_e getVvtTriggerType(vvt_mode_e vvtMode) {
 	switch (vvtMode) {
+	case VVT_CUSTOM_1:
+	case VVT_CUSTOM_2:
 	case VVT_INACTIVE:
+	  // hold on, what? 'VVT_INACTIVE' means TT_HALF_MOON?!
 		return trigger_type_e::TT_HALF_MOON;
 	case VVT_TOYOTA_3_TOOTH:
 		return trigger_type_e::TT_VVT_TOYOTA_3_TOOTH;
@@ -119,6 +123,8 @@ trigger_type_e getVvtTriggerType(vvt_mode_e vvtMode) {
 		return trigger_type_e::TT_MITSU_4G63_CAM;
 	case VVT_HR12DDR_IN:
 	    return trigger_type_e::TT_NISSAN_HR_CAM_IN;
+	case VVT_SUBARU_7TOOTH:
+			return trigger_type_e::TT_VVT_SUBARU_7_WITHOUT_6;
 	default:
 	  return getCustomVvtTriggerType(vvtMode);
 	}
@@ -264,25 +270,13 @@ extern bool kAcRequestState;
 #endif // EFI_GPIO_HARDWARE
 }
 
-Engine::Engine()
-    : clutchUpSwitchedState(&engineState.clutchUpState),
-	brakePedalSwitchedState(&engineState.brakePedalState),
-	acButtonSwitchedState(&module<AcController>().unmock().acButtonState)
-
-#if EFI_LAUNCH_CONTROL
-
-	, softSparkLimiter(false), hardSparkLimiter(true)
-
-#if EFI_ANTILAG_SYSTEM
-//	, ALSsoftSparkLimiter(false)
-#endif /* EFI_ANTILAG_SYSTEM */
-
-#endif // EFI_LAUNCH_CONTROL
-{
-	reset();
+Engine::Engine() {
+	// Everything else has default initializers setup in generated file
+	engineState.lua.fuelMult = 1;
+	ignitionState.luaTimingMult = 1;
 }
 
-int Engine::getGlobalConfigurationVersion(void) const {
+int Engine::getGlobalConfigurationVersion() const {
 	return globalConfigurationVersion;
 }
 
@@ -328,8 +322,12 @@ void Engine::preCalculate() {
 }
 
 #if EFI_SHAFT_POSITION_INPUT
-void Engine::OnTriggerStateProperState(efitick_t nowNt) {
+void Engine::OnTriggerStateProperState(efitick_t nowNt, size_t triggerStateIndex) {
 	rpmCalculator.setSpinningUp(nowNt);
+}
+
+TriggerStateListener* Engine::nextListener() {
+  return secondListener;
 }
 
 void Engine::OnTriggerSynchronizationLost() {

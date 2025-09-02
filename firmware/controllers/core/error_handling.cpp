@@ -13,6 +13,15 @@
 #include "log_hard_fault.h"
 #include "rusefi/critical_error.h"
 
+#if EFI_USE_OPENBLT
+/* communication with OpenBLT that is plain C, not to modify external file */
+extern "C" {
+	#include "openblt/shared_params.h"
+};
+#endif
+
+using namespace rusefi::stringutil;
+
 /**
  * Executes the BKPT instruction that causes the debugger to stop.
  */
@@ -157,6 +166,19 @@ const char *errorCookieToName(ErrorCookie cookie)
 #define printResetReason()											\
 	PRINT("Reset Cause: %s", getMCUResetCause(getMCUResetCause()))
 
+#if EFI_USE_OPENBLT
+#define printWdResetCounter()										\
+	do {															\
+		uint8_t wd_counter = 0;										\
+		SharedParamsReadByIndex(1, &wd_counter);					\
+		PRINT("WD resets: %u", (unsigned int)wd_counter);			\
+	} while (0)
+#else
+#define printWdResetCounter()										\
+	do {} while(0)
+#endif
+
+
 #define printErrorState()											\
 do {																\
 	PRINT("Power cycle count: %lu", bootCount);						\
@@ -228,6 +250,7 @@ void errorHandlerShowBootReasonAndErrors() {
 	#define PRINT(...) efiPrintf(__VA_ARGS__)
 
 	printResetReason();
+	printWdResetCounter();
 
 #if EFI_BACKUP_SRAM
 	backupErrorState *err = &lastBootError;
@@ -302,6 +325,7 @@ void errorHandlerWriteReportFile(FIL *fd) {
 			//this is file print
 			#define PRINT(format, ...) f_printf(fd, format "\r\n", __VA_ARGS__)
 			printResetReason();
+			printWdResetCounter();
 #if EFI_BACKUP_SRAM
 			printErrorState();
 			printErrorStack();

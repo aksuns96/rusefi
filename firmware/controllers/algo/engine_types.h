@@ -130,6 +130,7 @@ enum class trigger_type_e : uint32_t {
 	TT_GM_24x_5 = 27,
 	TT_HONDA_CBR_600 = 28,
 	TT_UNUSED29 = 29,
+	// todo: we syspect that this one is broken while TT_JEEP_EVD_36_2_2 is potentially better?
 	TT_CHRYSLER_NGC_36_2_2 = 30,
 	// skipped 3/1 with cam sensor for testing
 	TT_3_1_CAM = 31,
@@ -157,6 +158,7 @@ enum class trigger_type_e : uint32_t {
 	TT_VVT_MIATA_NB = 43,
 	TT_RENIX_44_2_2 = 44,
 	//* Same as TT_RENIX_44_2_2 but repeated three times, not two.
+  // todo: we suspect that TT_JEEPRENIX_66_2_2_2 is correct while this one here is broken VR polarity!
 	TT_RENIX_66_2_2_2 = 45,
 	// * Honda K crank shape
 	TT_HONDA_K_CRANK_12_1 = 46,
@@ -165,7 +167,7 @@ enum class trigger_type_e : uint32_t {
 	TT_SUBARU_SVX = 49,
 	TT_SUZUKI_K6A = 50,
 	// todo: remove this trigger once we have https://github.com/rusefi/rusefi/issues/2073
-	TT_SUBARU_7_WITHOUT_6 = 51,
+	TT_VVT_SUBARU_7_WITHOUT_6 = 51,
 	TT_NISSAN_MR18_CAM_VVT = 52,
 	// https://rusefi.com/forum/viewtopic.php?f=5&t=1912
 	TT_TRI_TACH = 53,
@@ -234,13 +236,20 @@ enum class trigger_type_e : uint32_t {
 
   TT_TOYOTA_3_TOOTH_UZ = 91,
 
+	// See also TT_CHRYSLER_NGC_36_2_2
+	TT_JEEP_EVD_36_2_2 = 92,
+
+	TT_JEEPRENIX_66_2_2_2 = 93,
+
+	// symmetrical crank
+	TT_SUBARU_7_6_CRANK = 94,
 	// do not forget to edit "#define trigger_type_e_enum" line in integration/rusefi_config.txt file to propogate new value to rusefi.ini TS project
 	// do not forget to invoke "gen_config.bat" once you make changes to integration/rusefi_config.txt
 	// todo: one day a hero would integrate some of these things into Makefile in order to reduce manual magic
 	//
 	// Another point: once you add a new trigger, run get_trigger_images.bat which would run rusefi_test.exe from unit_tests
 	//
-	TT_UNUSED = 92, // this is used if we want to iterate over all trigger types
+	TT_UNUSED = 95, // this is used if we want to iterate over all trigger types
 };
 
 typedef enum {
@@ -253,7 +262,7 @@ typedef enum {
 	TS_GRAB_PEDAL_UP = 6,
 	TS_GRAB_PEDAL_WOT = 7,
 	TS_RESET_TLE8888 = 8,
-    COMMAND_X14_UNUSED_9 = 0x09,
+  TS_START_STOP_ENGINE = 0x09,
 	TS_WRITE_FLASH = 0x0A,
 	TS_ETB_RESET = 0x0B,
 	TS_ETB_START_AUTOTUNE = 0x0C,
@@ -265,7 +274,7 @@ typedef enum {
 	TS_WIDEBAND_UPDATE = 0x12,
 	TS_EXTERNAL_TRIGGER_STIMULATOR_ENABLE = 0x13,
 	TS_ETB_DISABLE_JAM_DETECT = 0x14,
-	TS_BURN_WITHOUT_FLASH = 0x15,
+	COMMAND_X14_UNUSED_15 = 0x15,
 	TS_RESET_MC33810 = 0x16,
 	TS_SD_MOUNT_PC = 0x17,
 	TS_SD_MOUNT_ECU = 0x18,
@@ -315,6 +324,8 @@ typedef enum {
 	TS_LUA_OUTPUT_CATEGORY = 32,
 	TS_WIDEBAND_SET_IDX_BY_ID = 33,
 	TS_WIDEBAND_PING_BY_ID = 34,
+	TS_WIDEBAND_FLASH_BY_ID = 35,
+	TS_STOP_ENGINE = 36,
 } ts_command_e;
 
 typedef enum {
@@ -349,6 +360,7 @@ typedef enum {
 	HD_ACR,
 	HD_ACR2,
 	LTFT_RESET,
+	LTFT_APPLY_TO_VE,
 	LTFT_DEV_POKE,
 	LUA_COMMAND_1,
 	LUA_COMMAND_2,

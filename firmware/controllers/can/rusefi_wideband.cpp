@@ -19,7 +19,7 @@
 #include "wideband_firmware/for_rusefi/wideband_can.h"
 #pragma GCC diagnostic pop
 
-static size_t getWidebandBus() {
+size_t getWidebandBus() {
 	return engineConfiguration->widebandOnSecondBus ? 1 : 0;
 }
 
@@ -27,7 +27,12 @@ static size_t getWidebandBus() {
 
 static thread_t* waitingBootloaderThread = nullptr;
 
-void handleWidebandCan(const CANRxFrame& frame) {
+void handleWidebandCan(const size_t busIndex, const CANRxFrame& frame) {
+	// wrong bus
+	if (busIndex != getWidebandBus()) {
+		return;
+	}
+
 	// Bootloader acks with address 0x727573 aka ascii "rus"
 	if (CAN_EID(frame) != WB_ACK) {
 		return;
@@ -71,9 +76,20 @@ static void setStatus(can_wbo_re_status_e status)
 #endif
 }
 
-void setWidebandOffset(uint8_t hwIndex, uint8_t index) {
+void setWidebandOffsetNoWait(uint8_t hwIndex, uint8_t index) {
 	size_t bus = getWidebandBus();
 
+	if (hwIndex == 0xff) {
+		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 1, bus, true);
+		m[0] = index;
+	} else {
+		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 2, bus, true);
+		m[0] = index;
+		m[1] = hwIndex;
+	}
+}
+
+void setWidebandOffset(uint8_t hwIndex, uint8_t index) {
 	setStatus(WBO_RE_BUSY);
 
 	// Clear any pending acks for this thread
@@ -88,14 +104,10 @@ void setWidebandOffset(uint8_t hwIndex, uint8_t index) {
 
 	if (hwIndex == 0xff) {
 		efiPrintf("Setting all connected widebands to index %d...", index);
-		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 1, bus, true);
-		m[0] = index;
 	} else {
 		efiPrintf("Setting wideband with hwIndex %d to CAN index %d...", hwIndex, index);
-		CanTxMessage m(CanCategory::WBO_SERVICE, WB_MSG_SET_INDEX, 2, bus, true);
-		m[0] = index;
-		m[1] = hwIndex;
 	}
+	setWidebandOffsetNoWait(hwIndex, index);
 
 	if (!waitAck()) {
 		efiPrintf("Wideband index set failed: no controller detected!");
@@ -131,17 +143,22 @@ void pingWideband(uint8_t hwIndex) {
 		m[0] = hwIndex;
 	}
 
-	if (!waitAck()) {
+	// 25mS should be enought, lets do not block TS thread too long while waiting for WBO reply
+	if (!waitAck(25)) {
 		efiPrintf("Wideband ping failed: no controller detected!");
 		setStatus(WBO_RE_FAILED);
 	} else {
+		efiPrintf("WBO_RE_DONE");
 		setStatus(WBO_RE_DONE);
 	}
 
 	waitingBootloaderThread = nullptr;
 }
 
+// Called with 50mS interval and only if CAN and (on-boards) WBO(s) are enabled
 void sendWidebandInfo() {
+	static int counter = 0;
+
 	CanTxMessage m(CanCategory::WBO_SERVICE, WB_MGS_ECU_STATUS, /*dlc*/2, getWidebandBus(), /*isExtended*/true);
 
 	float vbatt = Sensor::getOrZero(SensorType::BatteryVoltage) * 10;
@@ -150,6 +167,19 @@ void sendWidebandInfo() {
 
 	// Offset 1 bit 0 = heater enable
 	m[1] = engine->engineState.heaterControlEnabled ? 0x01 : 0x00;
+
+	// 10 * 50 = 0.5S delay
+	if (counter == 10) {
+		for (size_t i = 0; i < CAN_WBO_COUNT; i++) {
+			if ((engineConfiguration->canWbo[i].enableRemap) &&
+				(engineConfiguration->canWbo[i].type == RUSEFI)) {
+				// remap
+				setWidebandOffsetNoWait(engineConfiguration->canWbo[i].reHwidx, engineConfiguration->canWbo[i].reId);
+			}
+		}
+	}
+
+	counter++;
 }
 
 #if EFI_WIDEBAND_FIRMWARE_UPDATE
@@ -158,7 +188,7 @@ void sendWidebandInfo() {
 // This array contains the firmware image for the wideband contoller
 #include "wideband_firmware/for_rusefi/wideband_image.h"
 
-void updateWidebandFirmware() {
+void updateWidebandFirmware(uint8_t hwIndex) {
 	size_t bus = getWidebandBus();
 	size_t totalSize = sizeof(build_wideband_image_bin);
 
@@ -173,19 +203,31 @@ void updateWidebandFirmware() {
 	efiPrintf("***************************************");
 	efiPrintf("        WIDEBAND FIRMWARE UPDATE");
 	efiPrintf("***************************************");
-	efiPrintf("Wideband Update: Rebooting to bootloader...");
-
+	if (hwIndex != 0xff) {
+		efiPrintf("Wideband Update: Rebooting WBO hwIndex %d to bootloader...", hwIndex);
+	} else {
+		efiPrintf("Wideband Update: Rebooting any WBO to bootloader...");
+	}
 	// The first request will reboot the chip (if necessary), and the second one will enable bootloader mode
 	// If the chip was already in bootloader (aka manual mode), then that's ok - the second request will
 	// just be safely ignored (but acked)
 	for (int i = 0; i < 2; i++) {
-		{
-			// Send bootloader entry command
+		// Send bootloader entry command
+		// First packet will ask main FW to reboot to bootloader
+		// Second will ask bootloader to stay in bootloader and wait for FW upload
+		// First packet can be new format - individually addressed
+		// Second one should have zero payload - bootloader expects no payload.
+		if ((hwIndex != 0xff) && (i == 0)) {
+			// New format - individually addressed
+			CanTxMessage m(CanCategory::WBO_SERVICE, WB_BL_ENTER, 1, bus, true);
+			m[0] = hwIndex;
+		} else {
 			CanTxMessage m(CanCategory::WBO_SERVICE, WB_BL_ENTER, 0, bus, true);
 		}
 
 		if (!waitAck()) {
-			efiPrintf("Wideband Update ERROR: Expected ACK from entry to bootloader, didn't get one.");
+			efiPrintf("Wideband Update ERROR: Expected ACK from entry to bootloader, didn't get %s.",
+				i ? "second (from bootloader)" : "first (from app)");
 			setStatus(WBO_RE_FAILED);
 			goto exit;
 		}
